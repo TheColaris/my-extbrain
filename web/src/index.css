@@ -1,0 +1,263 @@
+@import "tailwindcss";
+
+@custom-variant dark (&:is(.dark *));
+
+/* 全站字体栈：显式包含中文字体——此前只有西文栈，中文靠浏览器回退，
+   部分环境（lang=en + 默认字体设置）回退到宋体衬线，与 neubrutalism 风格不符。
+   顺序：系统西文在前（拉丁字形更优）→ 各平台中文字体 → 兜底。 */
+@theme {
+  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial,
+    "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC", "WenQuanYi Micro Hei",
+    sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
+}
+
+:root {
+    --background: hsl(41 100% 96%);
+    --foreground: hsl(240 10% 10%);
+    --card: hsl(0 0% 100%);
+    --card-foreground: hsl(240 10% 10%);
+    --popover: hsl(0 0% 100%);
+    --popover-foreground: hsl(240 10% 10%);
+    --primary: hsl(48 100% 67%);
+    --primary-foreground: hsl(240 10% 10%);
+    --secondary: hsl(174 62% 56%);
+    --secondary-foreground: hsl(240 10% 10%);
+    --accent: hsl(48 100% 91%);
+    --accent-foreground: hsl(240 10% 10%);
+    --muted: hsl(60 5% 90%);
+    --muted-foreground: hsl(240 4% 46%);
+    --destructive: hsl(0 84% 60%);
+    --destructive-foreground: hsl(0 0% 100%);
+    --success: hsl(152 69% 69%);
+    --success-foreground: hsl(240 10% 10%);
+    --warning: hsl(49 100% 60%);
+    --warning-foreground: hsl(240 10% 10%);
+    --info: hsl(212 100% 73%);
+    --info-foreground: hsl(240 10% 10%);
+    --border: hsl(240 10% 10%);
+    --input: hsl(240 10% 10%);
+    --ring: hsl(240 10% 10%);
+    --radius: 0rem;
+    --shadow-color: hsl(0 0% 0%);
+    --chart-1: hsl(0 84% 71%);
+    --chart-2: hsl(174 62% 56%);
+    --chart-3: hsl(49 100% 71%);
+    --chart-4: hsl(271 76% 53%);
+    --chart-5: hsl(326 78% 60%);
+    --neon-pink: hsl(311 100% 76%);
+    --neon-green: hsl(99 92% 72%);
+    --neon-blue: hsl(175 68% 64%);
+    --neon-orange: hsl(25 100% 55%);
+    --neon-purple: hsl(259 100% 71%);
+    --neon-yellow: hsl(48 100% 67%);
+    --neon-red: hsl(4 90% 63%);
+    --clash-1: hsl(15 85% 60%);
+    --clash-2: hsl(280 70% 50%);
+    --clash-3: hsl(165 80% 45%);
+    --clash-4: hsl(45 95% 55%);
+}
+
+.dark {
+    --background: hsl(240 10% 10%);
+    --foreground: hsl(60 9% 98%);
+    --card: hsl(240 10% 14%);
+    --card-foreground: hsl(60 9% 98%);
+    --popover: hsl(240 10% 14%);
+    --popover-foreground: hsl(60 9% 98%);
+    --primary: hsl(0 84% 71%);
+    --primary-foreground: hsl(240 10% 10%);
+    --secondary: hsl(174 62% 56%);
+    --secondary-foreground: hsl(240 10% 10%);
+    --accent: hsl(49 100% 71%);
+    --accent-foreground: hsl(240 10% 10%);
+    --muted: hsl(240 10% 20%);
+    --muted-foreground: hsl(60 5% 65%);
+    --destructive: hsl(0 84% 60%);
+    --destructive-foreground: hsl(0 0% 100%);
+    --success: hsl(152 69% 69%);
+    --success-foreground: hsl(240 10% 10%);
+    --warning: hsl(49 100% 60%);
+    --warning-foreground: hsl(240 10% 10%);
+    --info: hsl(212 100% 73%);
+    --info-foreground: hsl(240 10% 10%);
+    --border: hsl(60 9% 98%);
+    --input: hsl(60 9% 98%);
+    --ring: hsl(60 9% 98%);
+    --shadow-color: hsl(0 0% 0%);
+    --neon-pink: hsl(311 100% 76%);
+    --neon-green: hsl(99 92% 72%);
+    --neon-blue: hsl(175 68% 64%);
+    --neon-orange: hsl(25 100% 60%);
+    --neon-purple: hsl(259 100% 71%);
+    --neon-yellow: hsl(48 100% 67%);
+    --neon-red: hsl(4 90% 63%);
+    --clash-1: hsl(15 85% 65%);
+    --clash-2: hsl(280 70% 55%);
+    --clash-3: hsl(165 80% 50%);
+    --clash-4: hsl(45 95% 60%);
+}
+
+@theme inline {
+    --color-background: var(--background);
+    --color-foreground: var(--foreground);
+    --color-card: var(--card);
+    --color-card-foreground: var(--card-foreground);
+    --color-popover: var(--popover);
+    --color-popover-foreground: var(--popover-foreground);
+    --color-primary: var(--primary);
+    --color-primary-foreground: var(--primary-foreground);
+    --color-secondary: var(--secondary);
+    --color-secondary-foreground: var(--secondary-foreground);
+    --color-accent: var(--accent);
+    --color-accent-foreground: var(--accent-foreground);
+    --color-muted: var(--muted);
+    --color-muted-foreground: var(--muted-foreground);
+    --color-destructive: var(--destructive);
+    --color-destructive-foreground: var(--destructive-foreground);
+    --color-success: var(--success);
+    --color-success-foreground: var(--success-foreground);
+    --color-warning: var(--warning);
+    --color-warning-foreground: var(--warning-foreground);
+    --color-info: var(--info);
+    --color-info-foreground: var(--info-foreground);
+    --color-border: var(--border);
+    --color-input: var(--input);
+    --color-ring: var(--ring);
+    --radius-sm: calc(var(--radius) * 0.6);
+    --radius-md: calc(var(--radius) * 0.8);
+    --radius-lg: var(--radius);
+    --radius-xl: calc(var(--radius) * 1.4);
+    --radius-2xl: calc(var(--radius) * 1.8);
+    --radius-3xl: calc(var(--radius) * 2.2);
+    --radius-4xl: calc(var(--radius) * 2.6);
+    --color-shadow-color: var(--shadow-color);
+    --color-chart-1: var(--chart-1);
+    --color-chart-2: var(--chart-2);
+    --color-chart-3: var(--chart-3);
+    --color-chart-4: var(--chart-4);
+    --color-chart-5: var(--chart-5);
+    --color-neon-pink: var(--neon-pink);
+    --color-neon-green: var(--neon-green);
+    --color-neon-blue: var(--neon-blue);
+    --color-neon-orange: var(--neon-orange);
+    --color-neon-purple: var(--neon-purple);
+    --color-clash-1: var(--clash-1);
+    --color-clash-2: var(--clash-2);
+    --color-clash-3: var(--clash-3);
+    --color-clash-4: var(--clash-4);
+}
+
+/* ===== 动效（neubrutalism：干脆利落的位移+出现，无模糊淡出） ===== */
+@keyframes bk-fade-up {
+  from { opacity: 0; transform: translateY(14px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes bk-slide-in {
+  from { opacity: 0; transform: translateX(-12px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+@keyframes bk-spin { to { transform: rotate(360deg); } }
+@keyframes bk-pop {
+  0% { opacity: 0; transform: scale(0.94); }
+  100% { opacity: 1; transform: scale(1); }
+}
+/* 待办行「新条目/刚更新」落点高亮（黄底闪两次）；--neon-yellow 是完整色值，取半透明用 color-mix */
+@keyframes row-flash {
+  0%, 100% { background-color: transparent; }
+  25%, 60% { background-color: color-mix(in oklab, var(--neon-yellow) 55%, transparent); }
+}
+.row-flash { animation: row-flash 1.5s ease-out 1; }
+/* 待办 v3 完成动画：行 lime 闪 + 圆点 pop（恢复=黄闪+pop）；划线随 .row-just-done 即时生效 */
+@keyframes row-just-done {
+  0%, 100% { background-color: transparent; }
+  30%, 65% { background-color: color-mix(in oklab, var(--neon-green) 60%, transparent); }
+}
+.row-just-done { animation: row-just-done 0.8s ease-out 1; }
+.row-just-done .t-title { text-decoration: line-through; color: var(--muted-foreground); }
+@keyframes row-just-active {
+  0%, 100% { background-color: transparent; }
+  30%, 65% { background-color: color-mix(in oklab, var(--neon-yellow) 60%, transparent); }
+}
+.row-just-active { animation: row-just-active 0.8s ease-out 1; }
+@keyframes ck-pop {
+  0% { transform: scale(0.55); }
+  55% { transform: scale(1.32); }
+  100% { transform: scale(1); }
+}
+.ck-pop { animation: ck-pop 0.45s cubic-bezier(0.4, 0, 0.2, 1) 1; }
+.anim-fade-up { animation: bk-fade-up 0.35s cubic-bezier(0.2, 0.8, 0.3, 1) both; }
+.anim-slide-in { animation: bk-slide-in 0.28s cubic-bezier(0.2, 0.8, 0.3, 1) both; }
+.anim-pop { animation: bk-pop 0.22s cubic-bezier(0.2, 0.8, 0.3, 1) both; }
+.d-1 { animation-delay: 0.05s; } .d-2 { animation-delay: 0.12s; } .d-3 { animation-delay: 0.19s; }
+.d-4 { animation-delay: 0.26s; } .d-5 { animation-delay: 0.33s; }
+.bk-loader { width: 14px; height: 14px; border: 3px solid currentColor; border-bottom-color: transparent; animation: bk-spin 0.7s linear infinite; }
+@media (prefers-reduced-motion: reduce) {
+  .anim-fade-up, .anim-slide-in, .anim-pop, .bk-loader { animation: none; }
+}
+
+/* MDEditor 字体跟随全站（其默认栈无中文，中文会回退宋体） */
+.w-md-editor { --md-editor-font-family: var(--font-sans) !important; }
+
+/* ===== Markdown 渲染（github-markdown-css 作用域化，避免污染全局主题） ===== */
+.markdown-body {
+  -ms-text-size-adjust: 100%;
+  -webkit-text-size-adjust: 100%;
+  color: var(--foreground);
+  font-family: inherit;
+  font-size: 14px;
+  line-height: 1.7;
+  word-wrap: break-word;
+}
+.markdown-body h1, .markdown-body h2 { font-weight: 800; padding-bottom: 0.4em; border-bottom: 2px solid var(--border); margin: 20px 0 10px; }
+.markdown-body h1 { font-size: 1.6em; }
+.markdown-body h2 { font-size: 1.25em; }
+.markdown-body h3, .markdown-body h4, .markdown-body h5, .markdown-body h6 { font-weight: 700; margin: 16px 0 8px; }
+.markdown-body p { margin: 10px 0; }
+.markdown-body a { color: var(--foreground); text-decoration: underline; text-underline-offset: 3px; }
+.markdown-body ul, .markdown-body ol { padding-left: 1.6em; margin: 8px 0; }
+.markdown-body ul { list-style: disc; }
+.markdown-body ol { list-style: decimal; }
+.markdown-body li { margin: 3px 0; }
+.markdown-body li > p { margin: 4px 0; }
+.markdown-body code {
+  padding: 1px 5px;
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 85%;
+  background: var(--neon-yellow);
+  border: 1.5px solid var(--border);
+  border-radius: 4px;
+}
+.markdown-body pre {
+  padding: 12px 14px;
+  overflow: auto;
+  background: var(--card);
+  border: 2px solid var(--border);
+  border-radius: 8px;
+  line-height: 1.55;
+}
+.markdown-body pre code { padding: 0; background: transparent; border: none; font-size: 12.5px; }
+.markdown-body blockquote {
+  padding: 2px 0 2px 14px;
+  color: var(--muted-foreground);
+  border-left: 4px solid var(--border);
+  margin: 10px 0;
+}
+.markdown-body table { border-collapse: collapse; margin: 12px 0; display: block; overflow-x: auto; }
+.markdown-body th, .markdown-body td { border: 2px solid var(--border); padding: 6px 12px; }
+.markdown-body th { background: var(--muted); font-weight: 800; }
+.markdown-body hr { border: none; border-top: 3px solid var(--border); margin: 20px 0; }
+.markdown-body img { max-width: 100%; border: 2px solid var(--border); border-radius: 6px; }
+.markdown-body input[type="checkbox"] { margin-right: 6px; }
+
+/* ===== BoldKit 交互过渡（组件引用的 bk-interactive 类，主题侧统一实现） ===== */
+.bk-interactive {
+  /* 定稿（档位 1）：不位移，hover/focus 只加深阴影（常态 4px → 6px）
+     曲线=Material 标准 cubic-bezier(0.4,0,0.2,1)，0.3s（AICQ/Vuetify 同款手感） */
+  transition:
+    box-shadow 0.3s cubic-bezier(0.4, 0, 0.2, 1),
+    border-color 0.25s cubic-bezier(0.4, 0, 0.2, 1),
+    background-color 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}
+@media (prefers-reduced-motion: reduce) {
+  .bk-interactive { transition: none; }
+}

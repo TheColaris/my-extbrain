@@ -1,0 +1,32 @@
+# 复制为 .env 并按需修改；全部变量都有默认值，最小启动只需 DATABASE_URL
+
+# Postgres 连接串（唯一 DB 入口）
+# 自托管（compose 起 db）: postgres://extbrain:extbrain@127.0.0.1:5433/extbrain?sslmode=disable
+# Supabase: 走 Session Pooler（IPv4），形如 postgres://postgres.<ref>:<pwd>@aws-0-<region>.pooler.supabase.com:5432/postgres?sslmode=require
+DATABASE_URL=postgres://extbrain:extbrain@127.0.0.1:5432/extbrain?sslmode=disable
+
+# HTTP 监听
+LISTEN_ADDR=:8080
+
+# Web 会话 JWT 签名（必填，≥32 位随机串；占位值/短值启动会直接拒绝）
+# 生成: openssl rand -hex 32
+JWT_SECRET=
+
+# 注册开关（防滥用：公开部署可关）
+REGISTER_ENABLED=true
+
+# 受信反代网段（逗号分隔，X-Forwarded-For 取真实 IP；compose 内网默认信任本机）
+TRUSTED_PROXIES=127.0.0.1
+
+# 审计日志保留天数
+LOG_RETENTION_DAYS=90
+
+# 启动时自动执行数据库迁移
+MIGRATE_AUTO=true
+
+# 对外服务基址（如 https://my.example.com）。配置后 /install.sh 注入的下载地址恒定，
+# 不再依赖请求 Host 头（反代/CDN 缓存场景防脚本投毒）；同时建议反代对该路径 no-store
+PUBLIC_BASE_URL=
+
+# MCP 接入开关（/mcp Streamable HTTP；默认开）
+MCP_ENABLED=true

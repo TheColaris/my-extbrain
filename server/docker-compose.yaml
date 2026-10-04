@@ -1,0 +1,39 @@
+# my-extbrain 本地一键起（app + pgvector/pg16 —— 向量检索零迁移预留）。
+# 生产/Supabase：只跑 app 服务，DATABASE_URL 指向 Supabase Session Pooler（IPv4）。
+services:
+  db:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_DB: extbrain
+      POSTGRES_USER: extbrain
+      POSTGRES_PASSWORD: extbrain
+    ports:
+      - "5433:5432" # 宿主端口，冲突时自行调整
+    volumes:
+      - extbrain-db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U extbrain -d extbrain"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  app:
+    build:
+      context: .
+      args:
+        GOPROXY: ${GOPROXY:-https://goproxy.cn,direct}
+    environment:
+      DATABASE_URL: postgres://extbrain:extbrain@db:5432/extbrain?sslmode=disable
+      LISTEN_ADDR: :8080
+      MIGRATE_AUTO: "true"
+      REGISTER_ENABLED: "true"
+      # 必填：仓库默认值是公开的，公网部署可被伪造 JWT。生成: openssl rand -hex 32
+      JWT_SECRET: ${JWT_SECRET:?请在环境或 .env 中设置 JWT_SECRET（openssl rand -hex 32）}
+    ports:
+      - "8080:8080"
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  extbrain-db:

@@ -1,0 +1,8 @@
+.env
+*.log
+# embed 前端产物（由构建方预先产出后填充，不入库）
+cmd/app/dist/*
+!cmd/app/dist/.gitkeep
+
+# 本地构建产物（CLI 冒烟/安装脚本测试遗留）
+/extbrain

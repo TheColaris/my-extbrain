@@ -1,0 +1,5 @@
+{
+  "name": "my-extbrain",
+  "private": true,
+  "description": "my-extbrain 单仓：server/（Go 后端+CLI）、web/（React 前端）"
+}
