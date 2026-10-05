@@ -10,6 +10,7 @@ import (
 
 	"extbrain-server/internal/auth"
 	"extbrain-server/internal/config"
+	"extbrain-server/internal/e2e"
 	"extbrain-server/internal/mcp"
 	"extbrain-server/internal/model"
 	"extbrain-server/internal/service"
@@ -102,6 +103,13 @@ func Router(d Deps) *gin.Engine {
 			Audit: d.Audit, Version: d.Version,
 		})
 		r.Any("/mcp", MCPRoute(d, mcpH))
+	}
+
+	// E2E 洁净室信箱（仅三重门全开时注册；门不开=404）。无鉴权：洁净环境与外网隔离。
+	if e2e.Enabled() {
+		eh := &E2EHandler{DB: d.DB}
+		r.GET("/api/v1/e2e/mailbox", eh.Mailbox)
+		r.DELETE("/api/v1/e2e/mailbox", eh.MailboxClear)
 	}
 
 	// v1 组级宽松限流须挂在审计之前（组构造参数先于 Use）：被拦的 401 洪泛不产生审计写入

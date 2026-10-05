@@ -1,0 +1,21 @@
+# my-extbrain E2E 洁净室专用库（独立于 dev compose 的 5433，避免与 BA e2e 同端口容器冲突）
+services:
+  db:
+    image: pgvector/pgvector:pg16
+    container_name: my-extbrain-pg-e2e
+    environment:
+      POSTGRES_DB: extbrain
+      POSTGRES_USER: extbrain
+      POSTGRES_PASSWORD: extbrain
+    ports:
+      - "5434:5432"
+    volumes:
+      - extbrain-e2e-db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U extbrain -d extbrain"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+volumes:
+  extbrain-e2e-db: {}

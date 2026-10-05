@@ -1,10 +1,10 @@
 import { useEffect, useState } from 'react'
+import { Pencil, Pin, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import { ApiError, memosApi, type Memo } from '@/lib/api'
+import { renderMD } from '@/lib/md'
 import { cn } from '@/lib/utils'
-import DOMPurify from 'dompurify'
-import { marked } from 'marked'
 
 function dayOf(iso: string): string {
   const d = new Date(iso)
@@ -73,11 +73,14 @@ export function MemosPage() {
     byDay.set(k, [...(byDay.get(k) ?? []), m])
   })
 
+  // 便签操作按钮：定尺方钮（不随行高拉伸）；悬停显隐见容器（触屏常显）
+  const MEMO_BTN = 'bk-interactive flex h-[26px] w-[26px] shrink-0 cursor-pointer items-center justify-center rounded-md border-2 border-foreground bg-card hover:shadow-[2px_2px_0px_var(--shadow-color)]'
+
   const MemoRow = ({ m }: { m: Memo }) => (
-    <div className="group flex gap-3 border-b border-black/15 py-2.5">
+    <div className="group flex items-start gap-3 border-b border-black/15 py-2.5">
       <span className="w-11 shrink-0 pt-0.5 text-right font-mono text-[11px] font-semibold text-muted-foreground">{hm(m.create_time)}</span>
       {editID === m.id ? (
-        <div className="flex-1 space-y-2">
+        <div className="min-w-0 flex-1 space-y-2">
           <Textarea
             autoFocus
             rows={2}
@@ -96,17 +99,22 @@ export function MemosPage() {
         </div>
       ) : (
       <div
-        className="flex-1 cursor-text text-sm font-medium leading-relaxed [&_code]:rounded [&_code]:border-2 [&_code]:border-foreground [&_code]:bg-[var(--neon-yellow)] [&_code]:px-1 [&_code]:font-mono [&_code]:text-[12px] [&_a]:underline [&_strong]:font-extrabold"
+        className="markdown-body md-memo min-w-0 flex-1 cursor-text"
         title="双击编辑"
         onDoubleClick={() => { setEditID(m.id); setEditDraft(m.content) }}
-        dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(marked.parse(m.content, { async: false, breaks: true })) }}
+        dangerouslySetInnerHTML={{ __html: renderMD(m.content, { breaks: true }) }}
       />
       )}
-      <div className="flex shrink-0 gap-1 opacity-0 transition-opacity group-hover:opacity-100">
-        <button aria-label="置顶" onClick={() => togglePin(m)} className={cn('rounded border-2 border-foreground px-1.5 text-xs font-bold', m.is_pinned && 'bg-primary')}>
-          📌
+      <div className="flex shrink-0 items-start gap-1 transition-opacity can-hover:opacity-0 can-hover:group-hover:opacity-100 can-hover:group-focus-within:opacity-100">
+        <button type="button" aria-label={m.is_pinned ? '取消置顶' : '置顶'} onClick={() => togglePin(m)} className={cn(MEMO_BTN, m.is_pinned && 'bg-primary')}>
+          <Pin className="h-[13px] w-[13px]" />
         </button>
-        <button aria-label="删除" onClick={() => remove(m.id)} className="rounded border-2 border-foreground bg-destructive px-1.5 text-xs font-bold text-destructive-foreground">删</button>
+        <button type="button" aria-label="编辑" onClick={() => { setEditID(m.id); setEditDraft(m.content) }} className={MEMO_BTN}>
+          <Pencil className="h-[13px] w-[13px]" />
+        </button>
+        <button type="button" aria-label="删除" onClick={() => remove(m.id)} className={cn(MEMO_BTN, 'bg-destructive')}>
+          <Trash2 className="h-[13px] w-[13px]" />
+        </button>
       </div>
     </div>
   )

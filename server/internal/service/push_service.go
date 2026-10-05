@@ -8,6 +8,7 @@ import (
 	"log"
 	"time"
 
+	"extbrain-server/internal/e2e"
 	"extbrain-server/internal/model"
 
 	"github.com/SherClockHolmes/webpush-go"
@@ -64,6 +65,11 @@ func (s *PushService) Unsubscribe(ctx context.Context, userID int64, endpoint st
 // webPush 向单个订阅发通知
 func (s *PushService) webPush(sub *model.PushSubscription, title, body string) error {
 	payload, _ := json.Marshal(map[string]string{"title": title, "body": body})
+	// E2E 洁净室：不真发，截获落信箱后按成功返回（绝不回落真实外发）
+	if e2e.Enabled() {
+		e2e.Capture(s.DB, e2e.ChannelWebPush, sub.Endpoint, title, body, string(payload))
+		return nil
+	}
 	rsp, err := webpush.SendNotification(payload, &webpush.Subscription{
 		Endpoint: sub.Endpoint,
 		Keys:     webpush.Keys{Auth: sub.Auth, P256dh: sub.P256DH},
@@ -179,9 +185,12 @@ func (s *PushService) pushToUser(ctx context.Context, userID int64, eventType mo
 
 var ErrVapidDisabled = errors.New("web push disabled")
 
-// GenerateVapid 生成 VAPID 密钥对（打印到 stdout，写入 env 后重启）
+// GenerateVapid 生成 VAPID 密钥对（打印到 stdout，写入 env 后重启）。
+// 注意换序：webpush.GenerateVAPIDKeys 返回顺序是 (privateKey, publicKey)，
+// 此前直接透传导致公私钥颠倒（-gen-vapid 注入的 env 也是反的），真实推送必失败。
 func GenerateVapid() (pub, priv string, err error) {
-	return webpush.GenerateVAPIDKeys()
+	priv, pub, err = webpush.GenerateVAPIDKeys()
+	return pub, priv, err
 }
 
 // SendToUserForTest 面板「发送测试」：给自己全部启用渠道推一条

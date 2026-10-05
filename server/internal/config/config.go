@@ -24,6 +24,7 @@ type Config struct {
 	CronMode           string // internal=进程内定时（默认，self-host）；pg_cron=外部 pg_cron+pg_net 调内部端点
 	PublicBaseURL      string // 对外服务基址（如 https://my.example.com）；配置后 /install.sh 不再反射请求 Host（防反代缓存投毒）
 	MCPEnabled         bool   // MCP 接入开关（/mcp Streamable HTTP；默认开）
+	E2EMode            bool   // E2E 洁净室意图门（internal/e2e 三重门之一；true 但门②③不过=拒绝启动）
 }
 
 func Load() *Config {
@@ -44,6 +45,7 @@ func Load() *Config {
 		CronMode:           getEnv("CRON_MODE", "internal"),
 		PublicBaseURL:      strings.TrimSuffix(getEnv("PUBLIC_BASE_URL", ""), "/"),
 		MCPEnabled:         getEnv("MCP_ENABLED", "true") == "true",
+		E2EMode:            getEnv("E2E_MODE", "") == "true",
 	}
 }
 

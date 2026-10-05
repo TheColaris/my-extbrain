@@ -223,6 +223,19 @@ type SystemConfig struct {
 
 func (SystemConfig) TableName() string { return "tp_system_config" }
 
+// E2EMailbox E2E 洁净室信箱（迁移 0013；三重门全开时截获外发内容落此表，生产恒空表）
+type E2EMailbox struct {
+	ID         int64     `gorm:"primaryKey;autoIncrement" json:"id"`
+	Channel    string    `gorm:"column:channel" json:"channel"`
+	Target     string    `gorm:"column:target" json:"target"`
+	Title      string    `gorm:"column:title" json:"title"`
+	Body       string    `gorm:"column:body" json:"body"`
+	Payload    string    `gorm:"column:payload" json:"payload"`
+	CreateTime time.Time `gorm:"column:create_time;autoCreateTime" json:"create_time"`
+}
+
+func (E2EMailbox) TableName() string { return "tl_e2e_mailbox" }
+
 // NoteChunk 笔记切片（迁移 0009；向量检索。embedding 列不走 GORM（vector 类型），
 // 读写一律 raw SQL + `?::vector` 显式转型）
 type NoteChunk struct {

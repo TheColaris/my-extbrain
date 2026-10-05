@@ -14,6 +14,7 @@ import (
 	"extbrain-server/internal/api"
 	authpkg "extbrain-server/internal/auth"
 	"extbrain-server/internal/config"
+	"extbrain-server/internal/e2e"
 	"extbrain-server/internal/migrate"
 	"extbrain-server/internal/model"
 	"extbrain-server/internal/service"
@@ -28,6 +29,21 @@ import (
 var distFS embed.FS
 
 var version = "0.3.2-dev"
+
+// e2ePubLimit/e2eV1Limit 洁净室放宽 per-IP 限流配额（普通模式用生产默认值）。
+func e2ePubLimit() int {
+	if e2e.Enabled() {
+		return 200
+	}
+	return 10
+}
+
+func e2eV1Limit() int {
+	if e2e.Enabled() {
+		return 1200
+	}
+	return 240
+}
 
 func main() {
 	if len(os.Args) > 1 && os.Args[1] == "-gen-vapid" {
@@ -45,6 +61,11 @@ func main() {
 	sqlDB.SetMaxOpenConns(20)
 	sqlDB.SetMaxIdleConns(5)
 	sqlDB.SetConnMaxLifetime(30 * time.Minute)
+
+	// E2E 洁净室三重门（fail-closed）：E2E_MODE=true 但库名/标记行不过 → 拒绝启动
+	if err := e2e.Evaluate(cfg.E2EMode, cfg.DatabaseURL, db); err != nil {
+		log.Fatalf("%v", err)
+	}
 
 	if cfg.MigrateAuto {
 		if err := migrate.Up(cfg.DatabaseURL); err != nil {
@@ -96,10 +117,11 @@ func main() {
 		Audit:   service.NewAudit(db),
 		Limiter: service.NewMemRateLimiter(60, time.Minute),
 		// 公开端点 per-IP 限流（防无认证写放大灌库）：发码/注册/登录从严，poll 容纳 CLI 2s 轮询
-		PublicLimiter: service.NewMemRateLimiter(10, time.Minute),
+		// 洁净室放宽：旅程多轮快跑会打满 10/min——限流逻辑自身由单测保证，洁净模式只放宽配额
+		PublicLimiter: service.NewMemRateLimiter(e2ePubLimit(), time.Minute),
 		PollLimiter:   service.NewMemRateLimiter(60, time.Minute),
 		// v1 组级宽松限流：匿名 401 洪泛（伪造 token 打业务端点刷审计行）的最后防线
-		V1Limiter: service.NewMemRateLimiter(240, time.Minute),
+		V1Limiter: service.NewMemRateLimiter(e2eV1Limit(), time.Minute),
 		Trash:     &service.TrashService{DB: db},
 		PushLog:   pushLogSvc,
 		Shares:    &service.ShareService{DB: db, Notes: &service.NoteService{DB: db}},

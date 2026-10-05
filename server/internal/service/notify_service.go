@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"extbrain-server/internal/e2e"
 	"extbrain-server/internal/model"
 
 	"gorm.io/gorm"
@@ -180,6 +181,11 @@ func (s *NotifyService) sendFeishu(c *model.NotifyChannel, title, text string) e
 
 func (s *NotifyService) postJSON(u string, body any) error {
 	b, _ := json.Marshal(body)
+	// E2E 洁净室：不外发，截获落信箱后按成功返回（绝不回落真实外发）
+	if e2e.Enabled() {
+		e2e.Capture(s.DB, e2e.ChannelWebhook, u, webhookTitle(body), webhookText(body), string(b))
+		return nil
+	}
 	resp, err := s.Client.Post(u, "application/json", bytes.NewReader(b))
 	if err != nil {
 		return fmt.Errorf("网络错误: %s", errShort(err.Error()))
@@ -210,6 +216,39 @@ func boolInt(b bool) int16 {
 		return 1
 	}
 	return 0
+}
+
+// webhookTitle/webhookText 从钉钉/飞书消息体里取标题与正文（信箱展示用；payload 存完整原文）
+func webhookTitle(body any) string {
+	m, _ := body.(map[string]any)
+	if md, ok := m["markdown"].(map[string]string); ok {
+		return md["title"]
+	}
+	if card, ok := m["card"].(map[string]any); ok {
+		if h, ok := card["header"].(map[string]any); ok {
+			if t, ok := h["title"].(map[string]string); ok {
+				return t["content"]
+			}
+		}
+	}
+	return ""
+}
+
+func webhookText(body any) string {
+	m, _ := body.(map[string]any)
+	if md, ok := m["markdown"].(map[string]string); ok {
+		return md["text"]
+	}
+	if card, ok := m["card"].(map[string]any); ok {
+		if els, ok := card["elements"].([]any); ok && len(els) > 0 {
+			if e, ok := els[0].(map[string]any); ok {
+				if c, ok := e["content"].(string); ok {
+					return c
+				}
+			}
+		}
+	}
+	return ""
 }
 func max(a, b int) int {
 	if a > b {

@@ -15,3 +15,9 @@ node_modules/
 
 # 本地工作目录（不入库）
 .trellis/
+
+# E2E 洁净室运行时产物（e2e.sh / run-journey.mjs 自动生成，不入库；
+# server.log 由上方 *.log 覆盖）
+script/e2e/bin/
+script/e2e/.cli-home/
+script/e2e/.e2e-vapid.env

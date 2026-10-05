@@ -590,7 +590,11 @@ func noteCmd(args []string) {
 		}
 		q := repoQ(repo)
 		if prefix != "" {
-			q += "&prefix=" + url.QueryEscape(prefix)
+			sep := "&"
+			if q == "" {
+				sep = "?"
+			}
+			q += sep + "prefix=" + url.QueryEscape(prefix)
 		}
 		var r struct {
 			Notes []noteMeta `json:"notes"`
@@ -634,7 +638,11 @@ func noteCmd(args []string) {
 		}
 		q := repoQ(repo)
 		if prefix != "" {
-			q += "&prefix=" + url.QueryEscape(prefix)
+			sep := "&"
+			if q == "" {
+				sep = "?"
+			}
+			q += sep + "prefix=" + url.QueryEscape(prefix)
 		}
 		var r struct {
 			Notes []noteMeta `json:"notes"`
@@ -699,29 +707,45 @@ func searchCmd(args []string) {
 	if f.NArg() == 0 {
 		die(fmt.Errorf("关键词必填"))
 	}
+	// 服务端 /search 缺省=三域全搜（todos/memos/notes；笔记命中带仓库注记）
 	var r struct {
-		Hits []struct {
+		Todos []struct {
+			ID      int64  `json:"id"`
+			Title   string `json:"title"`
+			Snippet string `json:"snippet"`
+		} `json:"todos"`
+		Memos []struct {
+			ID      int64  `json:"id"`
+			Snippet string `json:"snippet"`
+		} `json:"memos"`
+		Notes []struct {
 			RepoName string `json:"repo_name"`
 			Path     string `json:"path"`
 			Title    string `json:"title"`
 			Snippet  string `json:"snippet"`
-		} `json:"hits"`
+		} `json:"notes"`
 	}
 	if err := api("GET", "/search?q="+url.QueryEscape(strings.Join(f.Args(), " ")), nil, &r); err != nil {
 		die(err)
 	}
 	if f.asJSON {
-		f.out(r.Hits)
+		f.out(r)
 		return
 	}
-	for _, h := range r.Hits {
+	for _, t := range r.Todos {
+		fmt.Printf("● 待办 #%d %s\n  %s\n", t.ID, t.Title, t.Snippet)
+	}
+	for _, m := range r.Memos {
+		fmt.Printf("● 便签 #%d\n  %s\n", m.ID, m.Snippet)
+	}
+	for _, h := range r.Notes {
 		loc := h.Path
 		if h.RepoName != "" {
 			loc = "[" + h.RepoName + "] " + h.Path
 		}
 		fmt.Printf("● %s\n  %s\n", loc, h.Snippet)
 	}
-	fmt.Printf("(%d 条)\n", len(r.Hits))
+	fmt.Printf("(%d 条)\n", len(r.Todos)+len(r.Memos)+len(r.Notes))
 }
 
 func meCmd(args []string) {

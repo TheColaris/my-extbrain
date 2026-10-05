@@ -1,14 +1,11 @@
 import { useMemo } from 'react'
-import DOMPurify from 'dompurify'
-import { marked } from 'marked'
 import { cn } from '@/lib/utils'
+import { renderMD } from '@/lib/md'
 
-// 全站 Markdown 渲染唯一出口：marked + DOMPurify 消毒 + github-markdown-css 皮肤
+// 全站 Markdown 渲染组件出口：渲染逻辑（marked + DOMPurify）在 lib/md.ts，
+// 皮肤=github-markdown-css 作用域化（.markdown-body，见 index.css）。
 export function MdView({ content, className }: { content: string; className?: string }) {
-  const html = useMemo(
-    () => DOMPurify.sanitize(marked.parse(content, { async: false })),
-    [content],
-  )
+  const html = useMemo(() => renderMD(content), [content])
   return (
     <div
       className={cn(
