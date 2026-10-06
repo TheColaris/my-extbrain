@@ -209,9 +209,10 @@ func (s *OpsService) Summary(ctx context.Context, days int) (*OpsSummary, error)
 	}
 	out.Overview.Push7dTotal, out.Overview.Push7dOk = prow.Total, prow.Ok
 
-	// 9) 动作 Top / 错误 Top
+	// 9) 动作 Top / 错误 Top（dashboard/push 读类=面板轮询噪声，skipWebRead 起已停记，存量行不进榜）
 	if err := s.DB.WithContext(ctx).Raw(`
-		SELECT action, count(*) AS count FROM tl_api_log WHERE create_time >= ?
+		SELECT action, count(*) AS count FROM tl_api_log
+		WHERE create_time >= ? AND action NOT IN ('dashboard.read', 'push.read')
 		GROUP BY action ORDER BY count DESC LIMIT ?`, start, opsTopActions).Scan(&out.TopActions).Error; err != nil {
 		return nil, err
 	}

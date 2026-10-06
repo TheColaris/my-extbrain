@@ -59,6 +59,11 @@ func TestOpsSummary(t *testing.T) {
 		mustExec(t, db, `INSERT INTO tl_api_log (user_id, api_key_id, action, status_code, client_ip, create_time)
 		         VALUES (?, 7, 'memo.create', 200, '1.1.1.1', ?)`, uid, today.Add(10*time.Hour+time.Duration(i)*time.Minute))
 	}
+	// 面板轮询噪声存量行：放 10 天前（聚合窗内、7 日均窗外），聚合必须排除不进榜
+	mustExec(t, db, `INSERT INTO tl_api_log (user_id, api_key_id, action, status_code, client_ip, create_time) VALUES
+	         (?, 0, 'dashboard.read', 200, '1.1.1.1', ?),
+	         (?, 0, 'push.read', 200, '1.1.1.1', ?)`,
+		uid, today.AddDate(0, 0, -10).Add(9*time.Hour), uid, today.AddDate(0, 0, -10).Add(9*time.Hour))
 	// 推送：今天成功 1 / 失败 1（近 7 日窗口）
 	mustExec(t, db, `INSERT INTO tl_push_log (user_id, event_type, event_key, channel_type, channel_id, title, body, status, create_time)
 	         VALUES (?, 'test', 'k1', 'web', 0, 't', 'b', 'ok', ?), (?, 'test', 'k2', 'web', 0, 't', 'b', 'fail', ?)`,
@@ -144,6 +149,11 @@ func TestOpsSummary(t *testing.T) {
 	if !topMemo {
 		t.Errorf("动作 Top 缺 memo.create(>=40)：%+v", got.TopActions)
 	}
+	for _, a := range got.TopActions {
+		if a.Action == "dashboard.read" || a.Action == "push.read" {
+			t.Errorf("动作 Top 混入面板轮询噪声 %s：%+v", a.Action, got.TopActions)
+		}
+	}
 	var err401 bool
 	for _, e := range got.TopErrors {
 		if e.Status == 401 && e.Count >= 1 {
@@ -162,8 +172,8 @@ func TestOpsSummary(t *testing.T) {
 	if me == nil {
 		t.Fatalf("活跃用户榜缺 uid=%d：%+v", uid, got.TopUsers)
 	}
-	if me.NickName != "ops测试" || me.Calls != 44 || me.Notes != 1 || me.Todos != 1 || me.Memos != 1 {
-		t.Errorf("榜行不符：%+v（期望 昵称=ops测试 调用=44=今日43+3天前1 内容=1/1/1）", *me)
+	if me.NickName != "ops测试" || me.Calls != 46 || me.Notes != 1 || me.Todos != 1 || me.Memos != 1 {
+		t.Errorf("榜行不符：%+v（期望 昵称=ops测试 调用=46=今日43+3天前1+10天前噪声2；噪声行只挡动作榜不挡用户榜）", *me)
 	}
 	if me.LastActive.Before(today) {
 		t.Errorf("最近活跃 %v 早于今天", me.LastActive)
