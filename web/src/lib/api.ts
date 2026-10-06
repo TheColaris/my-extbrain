@@ -219,8 +219,8 @@ export interface NotifyChannel {
 
 export const accountApi = {
   me: () => api<MeInfo>('/auth/me'),
-  /** 绑定/换绑（安全操作：服务端会 +1 会话版本并顺发新 token → 替换本地） */
-  bind: (type: 'phone' | 'email', value: string, password: string) =>
+  /** 绑定/换绑邮箱（安全操作：服务端会 +1 会话版本并顺发新 token → 替换本地） */
+  bind: (type: 'email', value: string, password: string) =>
     api<MeInfo & { token: string }>('/auth/bind', {
       method: 'POST', body: JSON.stringify({ type, value, password }),
     }),

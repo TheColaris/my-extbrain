@@ -16,11 +16,6 @@ import { cn } from '@/lib/utils'
 
 type Tab = 'account' | 'push' | 'bot'
 
-function maskPhone(p?: string): string {
-  if (!p) return ''
-  return p.slice(0, 3) + '****' + p.slice(-4)
-}
-
 export function SettingsPage() {
   const [tab, setTab] = useState<Tab>('account')
   return (
@@ -46,7 +41,7 @@ export function SettingsPage() {
 function AccountTab() {
   const [me, setMe] = useState<MeInfo | null>(null)
   const [nick, setNick] = useState('')
-  const [dlg, setDlg] = useState<'bind-phone' | 'bind-email' | 'pwd' | null>(null)
+  const [dlg, setDlg] = useState<'bind-email' | 'pwd' | null>(null)
   const [avatarDlg, setAvatarDlg] = useState(false)
   const [exporting, setExporting] = useState(false)
   const [err, setErr] = useState('')
@@ -100,12 +95,6 @@ function AccountTab() {
             <Input value={nick} onChange={(e) => setNick(e.target.value)} className="w-44" />
             <Button size="sm" variant="outline" onClick={saveNick}>保存</Button>
           </div>
-        </Row>
-        <Sep />
-        <Row title="手机号" value={me?.phone ? maskPhone(me.phone) : '未绑定'}>
-          <Button size="sm" variant={me?.phone ? 'outline' : 'default'} onClick={() => { setErr(''); setDlg('bind-phone') }}>
-            {me?.phone ? '换绑' : '绑定'}
-          </Button>
         </Row>
         <Sep />
         <Row title="邮箱" value={me?.email ?? '未绑定'}>
@@ -243,7 +232,7 @@ function Row({ title, value, children }: { title: string; value?: string; childr
 const Sep = () => <div className="border-t-2 border-black/10" />
 
 function BindDialog({ kind, onClose, onDone, onErr }: {
-  kind: 'bind-phone' | 'bind-email' | 'pwd' | null
+  kind: 'bind-email' | 'pwd' | null
   onClose: () => void; onDone: (msg: string) => void; onErr: (s: string) => void
 }) {
   const [value, setValue] = useState('')
@@ -262,9 +251,9 @@ function BindDialog({ kind, onClose, onDone, onErr }: {
         setToken(r.token) // 服务端已 +1 会话版本（其他设备全失效）→ 当前设备换用新 token
         onDone('密码已修改')
       } else {
-        const r = await accountApi.bind(kind === 'bind-phone' ? 'phone' : 'email', value.trim(), pwd)
+        const r = await accountApi.bind('email', value.trim(), pwd)
         setToken(r.token)
-        onDone(kind === 'bind-phone' ? '手机号已更新' : '邮箱已更新')
+        onDone('邮箱已更新')
       }
     } catch (e) {
       onErr(e instanceof ApiError ? e.message : '操作失败')
@@ -273,7 +262,7 @@ function BindDialog({ kind, onClose, onDone, onErr }: {
     }
   }
 
-  const title = kind === 'pwd' ? '修改密码' : kind === 'bind-phone' ? (value && '换绑手机号' || '绑定手机号') : '绑定邮箱'
+  const title = kind === 'pwd' ? '修改密码' : '绑定邮箱'
   return (
     <Dialog open onOpenChange={(v) => !v && onClose()}>
       <DialogContent>
@@ -281,8 +270,8 @@ function BindDialog({ kind, onClose, onDone, onErr }: {
         <div className="space-y-4">
           {kind !== 'pwd' && (
             <div className="space-y-2">
-              <Label>{kind === 'bind-phone' ? '新手机号' : '邮箱'}</Label>
-              <Input value={value} onChange={(e) => setValue(e.target.value)} placeholder={kind === 'bind-phone' ? '139…' : 'you@example.com'} />
+              <Label>邮箱</Label>
+              <Input value={value} onChange={(e) => setValue(e.target.value)} placeholder="you@example.com" />
             </div>
           )}
           {kind === 'pwd' ? (

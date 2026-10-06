@@ -129,7 +129,7 @@ export function Layout({ user, onLogout }: { user: { id: number; nick_name: stri
           <UserAvatar emoji={user.avatar_emoji} bg={user.avatar_bg} name={user.nick_name} size={32} />
           <div className="min-w-0 flex-1">
             <div className="truncate text-[13px] font-bold leading-tight">{user.nick_name}</div>
-            <div className="truncate font-mono text-[11px] text-muted-foreground">{user.phone ?? user.email}</div>
+            <div className="truncate font-mono text-[11px] text-muted-foreground">{user.email ?? user.phone}</div>
           </div>
         </div>
         <Button variant="outline" size="sm" className="mt-2 w-full" onClick={() => { onLogout(); navigate('/') }}>

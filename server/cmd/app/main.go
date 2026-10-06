@@ -28,7 +28,7 @@ import (
 //go:embed all:dist
 var distFS embed.FS
 
-var version = "0.3.3-dev"
+var version = "0.3.4-dev"
 
 // e2ePubLimit/e2eV1Limit 洁净室放宽 per-IP 限流配额（普通模式用生产默认值）。
 func e2ePubLimit() int {
