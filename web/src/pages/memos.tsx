@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react'
-import { Pencil, Pin, Trash2 } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
+import { ChevronDown, MoreHorizontal } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { Textarea } from '@/components/ui/textarea'
 import { ApiError, memosApi, type Memo } from '@/lib/api'
 import { renderMD } from '@/lib/md'
@@ -20,6 +21,31 @@ function hm(iso: string): string {
   return `${p(d.getHours())}:${p(d.getMinutes())}`
 }
 
+// 移动端折叠视图（<768px）：列表态只显摘要，点行展开全文；桌面恒全量展开
+function useCompactMode(): boolean {
+  const [compact, setCompact] = useState(() => window.matchMedia('(max-width: 767px)').matches)
+  useEffect(() => {
+    const mq = window.matchMedia('(max-width: 767px)')
+    const fn = (e: MediaQueryListEvent) => setCompact(e.matches)
+    mq.addEventListener('change', fn)
+    return () => mq.removeEventListener('change', fn)
+  }, [])
+  return compact
+}
+
+// 去 MD 语法取纯文本预览（折叠态摘要）
+function plainPreview(s: string): string {
+  return s
+    .replace(/```[\s\S]*?```/g, ' [代码] ')
+    .replace(/!\[[^\]]*\]\([^)]*\)/g, '')
+    .replace(/\[([^\]]*)\]\(([^)]*)\)/g, '$1')
+    .replace(/[#>*_`~|]/g, '')
+    .replace(/^\s*[-+]\s+/gm, '· ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 160)
+}
+
 export function MemosPage() {
   const [memos, setMemos] = useState<Memo[] | null>(null)
   const [content, setContent] = useState('')
@@ -27,6 +53,15 @@ export function MemosPage() {
   const [busy, setBusy] = useState(false)
   const [editID, setEditID] = useState<number | null>(null)
   const [editDraft, setEditDraft] = useState('')
+  const compact = useCompactMode()
+  const [expanded, setExpanded] = useState<Set<number>>(new Set())
+
+  const toggleExpand = (id: number) => setExpanded((prev) => {
+    const next = new Set(prev)
+    if (next.has(id)) next.delete(id)
+    else next.add(id)
+    return next
+  })
 
   const saveEdit = async (id: number) => {
     if (!editDraft.trim()) return
@@ -73,12 +108,30 @@ export function MemosPage() {
     byDay.set(k, [...(byDay.get(k) ?? []), m])
   })
 
-  // 便签操作按钮：定尺方钮（不随行高拉伸）；悬停显隐见容器（触屏常显）
+  // 便签操作钮：单钮收拢三操作（定尺方钮，不随行高拉伸）；触屏常显、桌面悬停显
   const MEMO_BTN = 'bk-interactive flex h-[26px] w-[26px] shrink-0 cursor-pointer items-center justify-center rounded-md border-2 border-foreground bg-card hover:shadow-[2px_2px_0px_var(--shadow-color)]'
 
-  const MemoRow = ({ m }: { m: Memo }) => (
-    <div className="group flex items-start gap-3 border-b border-black/15 py-2.5">
-      <span className="w-11 shrink-0 pt-0.5 text-right font-mono text-[11px] font-semibold text-muted-foreground">{hm(m.create_time)}</span>
+  const MemoRow = ({ m }: { m: Memo }) => {
+    const clickTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+    const clearTimer = () => { if (clickTimer.current) { clearTimeout(clickTimer.current); clickTimer.current = null } }
+    // 单击延迟 toggle（200ms 给双击编辑让路：双击=清 timer 直接进编辑）
+    const delayedToggle = () => { clearTimer(); clickTimer.current = setTimeout(() => { toggleExpand(m.id); clickTimer.current = null }, 200) }
+    const openEdit = () => { clearTimer(); setEditID(m.id); setEditDraft(m.content) }
+    const collapsed = compact && !expanded.has(m.id) && editID !== m.id
+
+    if (collapsed) {
+      return (
+        <div className="flex cursor-pointer items-center gap-2 border-b border-black/15 py-2 sm:gap-3 sm:py-2.5" onClick={delayedToggle} onDoubleClick={openEdit}>
+          <span className="w-9 shrink-0 text-right font-mono text-[11px] font-semibold text-muted-foreground sm:w-11">{hm(m.create_time)}</span>
+          <p className="min-w-0 flex-1 line-clamp-2 text-[13px] leading-snug text-foreground/85">{plainPreview(m.content)}</p>
+          <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+        </div>
+      )
+    }
+
+    return (
+    <div className="group flex items-start gap-2 border-b border-black/15 py-2.5 sm:gap-3">
+      <span className="w-9 shrink-0 pt-0.5 text-right font-mono text-[11px] font-semibold text-muted-foreground sm:w-11">{hm(m.create_time)}</span>
       {editID === m.id ? (
         <div className="min-w-0 flex-1 space-y-2">
           <Textarea
@@ -101,23 +154,29 @@ export function MemosPage() {
       <div
         className="markdown-body md-memo min-w-0 flex-1 cursor-text"
         title="双击编辑"
-        onDoubleClick={() => { setEditID(m.id); setEditDraft(m.content) }}
+        onClick={compact ? delayedToggle : undefined}
+        onDoubleClick={openEdit}
         dangerouslySetInnerHTML={{ __html: renderMD(m.content, { breaks: true }) }}
       />
       )}
-      <div className="flex shrink-0 items-start gap-1 transition-opacity can-hover:opacity-0 can-hover:group-hover:opacity-100 can-hover:group-focus-within:opacity-100">
-        <button type="button" aria-label={m.is_pinned ? '取消置顶' : '置顶'} onClick={() => togglePin(m)} className={cn(MEMO_BTN, m.is_pinned && 'bg-primary')}>
-          <Pin className="h-[13px] w-[13px]" />
-        </button>
-        <button type="button" aria-label="编辑" onClick={() => { setEditID(m.id); setEditDraft(m.content) }} className={MEMO_BTN}>
-          <Pencil className="h-[13px] w-[13px]" />
-        </button>
-        <button type="button" aria-label="删除" onClick={() => remove(m.id)} className={cn(MEMO_BTN, 'bg-destructive')}>
-          <Trash2 className="h-[13px] w-[13px]" />
-        </button>
+      {/* 操作收拢为单钮菜单：正文列让位（悬停显隐见容器，触屏常显单钮） */}
+      <div className="flex shrink-0 items-start transition-opacity can-hover:opacity-0 can-hover:group-hover:opacity-100 can-hover:group-focus-within:opacity-100">
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <button type="button" aria-label="便签操作" className={cn(MEMO_BTN, m.is_pinned && 'bg-primary')}>
+              <MoreHorizontal className="h-[13px] w-[13px]" />
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-28">
+            <DropdownMenuItem onClick={() => togglePin(m)}>{m.is_pinned ? '取消置顶' : '置顶'}</DropdownMenuItem>
+            <DropdownMenuItem onClick={() => { setEditID(m.id); setEditDraft(m.content) }}>编辑</DropdownMenuItem>
+            <DropdownMenuItem onClick={() => remove(m.id)} className="text-destructive focus:text-destructive">删除</DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
     </div>
-  )
+    )
+  }
 
   return (
     <div className="mx-auto max-w-3xl space-y-5">

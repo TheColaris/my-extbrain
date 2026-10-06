@@ -4,7 +4,11 @@
 
 /* 可悬停设备（鼠标/触控板）：用于「悬停浮现、触屏常显」的交互（便签操作列）。
    按能力判定而非宽度断点——触屏大屏（iPad 横屏）也要点得到按钮 */
-@custom-variant can-hover (@media (hover: hover) and (pointer: fine));
+@custom-variant can-hover {
+  @media (hover: hover) and (pointer: fine) {
+    @slot;
+  }
+}
 
 /* 全站字体栈：显式包含中文字体——此前只有西文栈，中文靠浏览器回退，
    部分环境（lang=en + 默认字体设置）回退到宋体衬线，与 neubrutalism 风格不符。
@@ -267,6 +271,20 @@
 .md-memo pre { margin: 8px 0; padding: 10px 12px; }
 .md-memo blockquote { margin: 8px 0; }
 .md-memo table { margin: 8px 0; }
+
+/* 移动端二档紧凑：窄屏再收一档字号与留白（可视密度优先） */
+@media (max-width: 640px) {
+  .markdown-body.md-memo { font-size: 13px; line-height: 1.55; }
+  .md-memo p { margin: 4px 0; }
+  .md-memo h1, .md-memo h2, .md-memo h3, .md-memo h4, .md-memo h5, .md-memo h6 { margin: 8px 0 3px; }
+  .md-memo h1 { font-size: 15px; }
+  .md-memo h2, .md-memo h3, .md-memo h4, .md-memo h5, .md-memo h6 { font-size: 13px; }
+  .md-memo ul, .md-memo ol { margin: 4px 0; padding-left: 18px; }
+  .md-memo pre { margin: 6px 0; padding: 8px 10px; }
+  .md-memo pre code { font-size: 11.5px; }
+  .md-memo table { margin: 6px 0; }
+  .md-memo th, .md-memo td { padding: 4px 8px; }
+}
 
 /* ===== BoldKit 交互过渡（组件引用的 bk-interactive 类，主题侧统一实现） ===== */
 .bk-interactive {

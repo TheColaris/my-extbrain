@@ -11,11 +11,11 @@ export default defineConfig({
     },
   },
   server: {
-    // 本地开发代理到 server 仓（compose 起的 8080）
+    // 本地开发代理到 server 仓（默认 compose 起的 8080；VITE_BACKEND 可覆盖，多实例并行 dev 用）
     proxy: {
-      '/api': 'http://127.0.0.1:8080',
-      '/guide.md': 'http://127.0.0.1:8080',
-      '/guide-mcp.md': 'http://127.0.0.1:8080',
+      '/api': process.env.VITE_BACKEND ?? 'http://127.0.0.1:8080',
+      '/guide.md': process.env.VITE_BACKEND ?? 'http://127.0.0.1:8080',
+      '/guide-mcp.md': process.env.VITE_BACKEND ?? 'http://127.0.0.1:8080',
     },
   },
 })
