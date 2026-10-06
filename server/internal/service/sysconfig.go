@@ -14,18 +14,18 @@ import (
 
 // 平台参数配置键（tp_system_config.config_key；枚举真源=本处常量，禁散落字符串）
 const (
-	CfgEmbeddingEnabled  = "embedding.enabled"   // "true"/"false"
-	CfgEmbeddingBaseURL  = "embedding.base_url"  // OpenAI 兼容端点，如 https://api.siliconflow.cn/v1
-	CfgEmbeddingAPIKey   = "embedding.api_key"   // 敏感：接口出参只回打码
-	CfgEmbeddingModel    = "embedding.model"     // 如 BAAI/bge-m3
-	CfgEmbeddingDim      = "embedding.dim"       // 向量维度（须与 tf_note_chunk.embedding 列一致）
-	CfgEmbeddingLastTest = "embedding.last_test" // JSON：最近一次测试连接结果
-	CfgRepoQuota         = "repo.quota"          // 每用户可创建的仓库数上限（不含默认仓库；<=0=不限制）
-	CfgEmailEnabled      = "email.enabled"       // "true"/"false"（注册验证码发信）
+	CfgEmbeddingEnabled  = "embedding.enabled"    // "true"/"false"
+	CfgEmbeddingBaseURL  = "embedding.base_url"   // OpenAI 兼容端点，如 https://api.siliconflow.cn/v1
+	CfgEmbeddingAPIKey   = "embedding.api_key"    // 敏感：接口出参只回打码
+	CfgEmbeddingModel    = "embedding.model"      // 如 BAAI/bge-m3
+	CfgEmbeddingDim      = "embedding.dim"        // 向量维度（须与 tf_note_chunk.embedding 列一致）
+	CfgEmbeddingLastTest = "embedding.last_test"  // JSON：最近一次测试连接结果
+	CfgRepoQuota         = "repo.quota"           // 每用户可创建的仓库数上限（不含默认仓库；<=0=不限制）
+	CfgEmailEnabled      = "email.enabled"        // "true"/"false"（注册验证码发信）
 	CfgEmailAPIKey       = "email.resend_api_key" // 敏感：接口出参只回打码
-	CfgEmailFromAddr     = "email.from_address"  // 发件地址（须为 Resend 已验证域名）
-	CfgEmailFromName     = "email.from_name"     // 发件人显示名
-	CfgEmailLastTest     = "email.last_test"     // JSON：最近一次测试发信结果
+	CfgEmailFromAddr     = "email.from_address"   // 发件地址（须为 Resend 已验证域名）
+	CfgEmailFromName     = "email.from_name"      // 发件人显示名
+	CfgEmailLastTest     = "email.last_test"      // JSON：最近一次测试发信结果
 )
 
 // 每用户仓库数默认上限（普通用户 3 个；可在 tp_system_config 配 repo.quota 调整；
