@@ -9,6 +9,7 @@ import {
   Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle,
 } from '@/components/ui/dialog'
 import { undoToast } from '@/components/undo-toast'
+import { EmptyDemo } from '@/components/empty-demo'
 import { ApiError, todosApi, type Todo, type TodoCounts } from '@/lib/api'
 import { TODO_SORT, TODO_STATUS, type TodoSort } from '@/lib/enums'
 import { cn } from '@/lib/utils'
@@ -409,10 +410,14 @@ function EmptyState({ title, hint }: { title: string; hint?: boolean }) {
       <div className="text-base font-extrabold">{title}</div>
       {hint && (
         <>
-          <p className="mt-1.5 text-sm font-semibold text-muted-foreground">点右上角「新建待办」，或让 AI 帮你记：</p>
-          <div className="mt-3 inline-block border-2 border-foreground bg-background px-3 py-2 text-left font-mono text-xs font-semibold shadow-[3px_3px_0px_var(--shadow-color)]">
-            extbrain todo add "买牛奶" --due "明天 10:00"
-          </div>
+          <p className="mt-1.5 text-sm font-semibold text-muted-foreground">点右上角「新建待办」手动记；或对 AI 说一句：</p>
+          <EmptyDemo say="帮我记一条待办：周五 18:00 前交周报">
+            <div className="flex items-center gap-2.5 rounded-lg border-2 border-foreground bg-card px-3 py-2.5 text-left text-[13px] font-semibold shadow-[3px_3px_0px_var(--shadow-color)]">
+              <span className="h-[9px] w-[9px] shrink-0 rounded-full border-2 border-foreground bg-background" />
+              <span className="min-w-0 flex-1">周五 18:00 前交周报</span>
+              <span className="shrink-0 rounded-md border-2 border-foreground bg-destructive px-1.5 py-0.5 text-[11px] font-bold text-destructive-foreground">今日 18:00</span>
+            </div>
+          </EmptyDemo>
         </>
       )}
     </div>

@@ -3,20 +3,23 @@ import { Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { Button } from '@/components/ui/button'
 import { UserAvatar } from '@/components/user-avatar'
 import { NoteModal } from '@/components/note-modal'
+import { TourGuide } from '@/components/tour-guide'
 import { BrandMark } from '@/components/brand-mark'
 import { cn } from '@/lib/utils'
 
 // 应用骨架（侧栏形态 + 移动端抽屉化响应式）：
 // brand + 分组导航 + 底部用户卡；<lg 侧栏收进抽屉（汉堡开合 + 遮罩），lg+ 常驻。
 
-const NAV = [
+// tour = 上手引导的聚光目标（tour-guide.tsx 按 [data-tour] 定位）
+type NavItem = { label: string; ready: boolean; tour?: string }
+const NAV: { group: string; items: NavItem[] }[] = [
   {
     group: '工作台',
     items: [
       { label: '仪表盘', ready: true },
-      { label: '待办', ready: true },
-      { label: '便签', ready: true },
-      { label: '知识库', ready: true },
+      { label: '待办', ready: true, tour: 'nav-todos' },
+      { label: '便签', ready: true, tour: 'nav-memos' },
+      { label: '知识库', ready: true, tour: 'nav-notes' },
     ],
   },
   {
@@ -30,14 +33,14 @@ const NAV = [
   {
     group: '开发',
     items: [
-      { label: 'API 密钥', ready: true },
+      { label: 'API 密钥', ready: true, tour: 'nav-keys' },
       { label: '操作日志', ready: true },
       { label: '通知记录', ready: true },
     ],
   },
 ]
 // 平台组：仅管理员可见（tu_user.is_admin）
-const NAV_ADMIN = {
+const NAV_ADMIN: { group: string; items: NavItem[] } = {
   group: '平台',
   items: [
     { label: '运营看板', ready: true },
@@ -56,7 +59,7 @@ const PATH_TITLE: Record<string, string> = {
   '/search': '搜索', // 顶栏全局入口，不占侧栏
 }
 
-export function Layout({ user, onLogout }: { user: { nick_name: string; phone?: string; email?: string; avatar_emoji?: string; avatar_bg?: string; is_admin?: boolean }; onLogout: () => void }) {
+export function Layout({ user, onLogout }: { user: { id: number; nick_name: string; phone?: string; email?: string; avatar_emoji?: string; avatar_bg?: string; is_admin?: boolean }; onLogout: () => void }) {
   const [drawer, setDrawer] = useState(false)
   const loc = useLocation()
   const navigate = useNavigate()
@@ -103,6 +106,7 @@ export function Layout({ user, onLogout }: { user: { nick_name: string; phone?: 
                 <button
                   key={it.label}
                   type="button"
+                  data-tour={it.tour}
                   disabled={!it.ready}
                   onClick={() => it.ready && nav(it.label)}
                   className={cn(
@@ -188,6 +192,8 @@ export function Layout({ user, onLogout }: { user: { nick_name: string; phone?: 
       </div>
       {/* 笔记浮窗：?note= 参数驱动，叠加在任意页（/notes 除外） */}
       <NoteModal />
+      {/* 上手引导：首登进 /dashboard 自动播一次；?tour=1 重放（移动端导航步自动开抽屉） */}
+      <TourGuide uid={user.id} onDrawerChange={setDrawer} />
     </div>
   )
 }

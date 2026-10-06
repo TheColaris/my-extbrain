@@ -1,8 +1,168 @@
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Button } from '@/components/ui/button'
 import { copyText } from '@/lib/clipboard'
 import { BrandMark } from '@/components/brand-mark'
-import { useState } from 'react'
+import { cn } from '@/lib/utils'
+
+/* ===== AI 演示（循环动画，2026-10-06 指引动画 C 批；原型 prototype/landing.html）=====
+   终端打字（todo add → note push → search）→ 右侧「我的外脑」小面板同步飞入 → 搜索命中高亮 → 循环。
+   「重播」重跑时间轴；「跳过」立即落终态并停循环（用户令：所有教程支持跳过）。 */
+
+const DEMO_CMD = {
+  c1: 'extbrain todo add "周五前交周报" --due 2026-10-09',
+  c2: 'extbrain note push 调研笔记.md --path ai/glm-使用笔记.md',
+  c3: 'extbrain search "Supabase"',
+}
+const DEMO_SEARCH = 'Supabase'
+type DemoSt = {
+  t1: number; t2: number; t3: number; search: number
+  r1: boolean; r2: boolean; r3: boolean; r4: boolean
+  mTodo: boolean; mNote: boolean; mHit: boolean
+}
+const DEMO_EMPTY: DemoSt = { t1: 0, t2: 0, t3: 0, search: 0, r1: false, r2: false, r3: false, r4: false, mTodo: false, mNote: false, mHit: false }
+const DEMO_FINAL: DemoSt = { t1: 999, t2: 999, t3: 999, search: 999, r1: true, r2: true, r3: true, r4: true, mTodo: true, mNote: true, mHit: true }
+
+function TLine({ on, cls, children }: { on: boolean; cls?: string; children: ReactNode }) {
+  return <div className={cn('whitespace-pre transition-opacity duration-200', on ? 'opacity-100' : 'opacity-0', cls)}>{children}</div>
+}
+const Caret = () => <span className="demo-cursor ml-0.5 inline-block h-3.5 w-2 bg-[var(--neon-green)] align-[-2px]" />
+
+function AiDemo() {
+  const [st, setSt] = useState<DemoSt>(DEMO_EMPTY)
+  const [runId, setRunId] = useState(0)
+  const timers = useRef<number[]>([])
+  const stopped = useRef(false)
+
+  useEffect(() => {
+    stopped.current = false
+    const T = (ms: number, fn: () => void) => {
+      timers.current.push(window.setTimeout(() => { if (!stopped.current) fn() }, ms))
+    }
+    let typer = 0
+    const type = (key: 't1' | 't2' | 't3' | 'search', text: string, speed: number, done: () => void) => {
+      let i = 0
+      typer = window.setInterval(() => {
+        if (stopped.current) { window.clearInterval(typer); return }
+        i++
+        setSt((s) => ({ ...s, [key]: i }))
+        if (i >= text.length) { window.clearInterval(typer); done() }
+      }, speed)
+    }
+    const cycle = () => {
+      setSt(DEMO_EMPTY)
+      T(500, () => {
+        type('t1', DEMO_CMD.c1, 22, () => {
+          T(150, () => setSt((s) => ({ ...s, r1: true })))
+          T(430, () => setSt((s) => ({ ...s, mTodo: true })))
+          T(950, () => {
+            type('t2', DEMO_CMD.c2, 22, () => {
+              T(150, () => setSt((s) => ({ ...s, r2: true })))
+              T(430, () => setSt((s) => ({ ...s, mNote: true })))
+              T(950, () => {
+                type('t3', DEMO_CMD.c3, 22, () => {
+                  T(150, () => setSt((s) => ({ ...s, r3: true })))
+                  T(360, () => setSt((s) => ({ ...s, r4: true })))
+                  T(260, () => {
+                    type('search', DEMO_SEARCH, 70, () => {
+                      T(360, () => setSt((s) => ({ ...s, mHit: true })))
+                      T(4200, cycle)
+                    })
+                  })
+                })
+              })
+            })
+          })
+        })
+      })
+    }
+    cycle()
+    return () => {
+      stopped.current = true
+      timers.current.forEach(window.clearTimeout)
+      timers.current = []
+      window.clearInterval(typer)
+    }
+  }, [runId])
+
+  const skip = () => {
+    stopped.current = true
+    timers.current.forEach(window.clearTimeout)
+    timers.current = []
+    setSt(DEMO_FINAL)
+  }
+
+  return (
+    <div>
+      <div className="flex items-center gap-2.5">
+        <span className="h-3 w-3 border-2 border-foreground bg-[var(--neon-purple)] max-sm:hidden" />
+        <h2 className="text-xl font-extrabold sm:text-2xl">AI 是这样替你记的</h2>
+        <span className="ml-auto flex gap-2">
+          <Button size="sm" variant="outline" onClick={() => setRunId((x) => x + 1)}>↻ 重播</Button>
+          <Button size="sm" variant="outline" onClick={skip}>跳过</Button>
+        </span>
+      </div>
+      <p className="mt-2 text-[13.5px] font-semibold text-muted-foreground">装好 CLI 后，直接对你的 AI 说「帮我记一下」——剩下的它自己会做。</p>
+
+      <div className="mt-4 grid items-stretch gap-5 md:grid-cols-[1.45fr_1fr]">
+        {/* 终端 */}
+        <div className="overflow-x-auto rounded-xl border-3 border-foreground bg-[#111] px-5 py-4 font-mono text-[13px] leading-loose text-[#e4e4e7] shadow-[4px_4px_0px_var(--shadow-color)]">
+          <TLine on={st.t1 > 0}>
+            <span className="text-primary">$</span> {DEMO_CMD.c1.slice(0, st.t1)}
+            {st.t1 > 0 && st.t1 < DEMO_CMD.c1.length && <Caret />}
+          </TLine>
+          <TLine on={st.r1} cls="text-[var(--neon-green)]">✓ #7 周五前交周报</TLine>
+          <div className="h-2.5" />
+          <TLine on={st.t2 > 0}>
+            <span className="text-primary">$</span> {DEMO_CMD.c2.slice(0, st.t2)}
+            {st.t2 > 0 && st.t2 < DEMO_CMD.c2.length && <Caret />}
+          </TLine>
+          <TLine on={st.r2} cls="text-[var(--neon-green)]">✓ ai/glm-使用笔记.md（4.2 KB）</TLine>
+          <div className="h-2.5" />
+          <TLine on={st.t3 > 0}>
+            <span className="text-primary">$</span> {DEMO_CMD.c3.slice(0, st.t3)}
+            {st.t3 > 0 && st.t3 < DEMO_CMD.c3.length && <Caret />}
+          </TLine>
+          <TLine on={st.r3} cls="text-gray-400">● ai/supabase-坑.md</TLine>
+          <TLine on={st.r4} cls="text-gray-400">{'  '}…session pooler 下 prepared statements 要禁用…</TLine>
+        </div>
+
+        {/* 我的外脑 · 小面板（随终端同步） */}
+        <div className="flex flex-col overflow-hidden rounded-xl border-3 border-foreground bg-card shadow-[4px_4px_0px_var(--shadow-color)]">
+          <div className="flex items-center gap-2 border-b-2 border-foreground bg-[var(--neon-yellow)] px-3.5 py-2.5 text-[12.5px] font-extrabold">我的外脑 · 面板</div>
+          <div className="flex flex-1 flex-col gap-3 p-3.5">
+            <div>
+              <div className="mb-1.5 text-[10.5px] font-extrabold tracking-wider text-muted-foreground">待办</div>
+              <div className={cn('flex items-center gap-2 rounded-md border-2 border-foreground bg-background px-2.5 py-1.5 text-xs font-semibold transition-all duration-300', st.mTodo ? 'opacity-100' : 'translate-y-2 scale-[.96] opacity-0')}>
+                <span className="h-2.5 w-2.5 shrink-0 rounded-full border-2 border-foreground bg-background" />
+                <span className="min-w-0 flex-1">周五前交周报</span>
+                <span className="shrink-0 rounded border-2 border-foreground bg-destructive px-1.5 text-[11px] font-bold text-destructive-foreground">10-09</span>
+              </div>
+            </div>
+            <div>
+              <div className="mb-1.5 text-[10.5px] font-extrabold tracking-wider text-muted-foreground">知识库</div>
+              <div className={cn('flex items-center gap-2 rounded-md border-2 border-foreground bg-background px-2.5 py-1.5 font-mono text-[11.5px] font-semibold transition-all duration-300', st.mNote ? 'opacity-100' : 'translate-y-2 scale-[.96] opacity-0')}>
+                <span className="min-w-0 flex-1 truncate">ai/glm-使用笔记.md</span>
+                <span className="shrink-0 rounded border-2 border-foreground bg-[var(--neon-green)] px-1.5 text-[11px] font-bold">新</span>
+              </div>
+            </div>
+            <div>
+              <div className="mb-1.5 text-[10.5px] font-extrabold tracking-wider text-muted-foreground">搜索</div>
+              <div className="flex min-h-[33px] items-center gap-1.5 rounded-md border-2 border-foreground bg-card px-2.5 py-1.5 font-mono text-[11.5px]">
+                <span className="shrink-0">🔍</span>
+                <span className="min-w-0 truncate">{DEMO_SEARCH.slice(0, st.search)}</span>
+                <span className="demo-cursor inline-block h-3 w-[7px] shrink-0 bg-foreground" />
+              </div>
+              <div className={cn('mt-2 flex items-center gap-2 rounded-md border-2 border-foreground px-2.5 py-1.5 font-mono text-[11.5px] font-semibold transition-all duration-300', st.mHit ? 'bg-[var(--neon-yellow)] opacity-100' : 'translate-y-2 opacity-0')}>
+                <span className="min-w-0 flex-1 truncate">ai/supabase-坑.md</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
 
 // 官网 Landing（/ 恒为官网，不鉴权）；「进入我的外脑」=已登录跳 /dashboard，未登录跳登录（登录后回跳）
 export function LandingPage({ user }: { user: { nick_name: string } | null }) {
@@ -73,24 +233,9 @@ export function LandingPage({ user }: { user: { nick_name: string } | null }) {
           ))}
         </section>
 
-        {/* AI 演示 */}
+        {/* AI 演示（循环动画：终端打字 → 面板同步飞入 → 搜索命中；重播/跳过） */}
         <section id="demo" className="mt-14 scroll-mt-20">
-          <h2 className="flex items-center gap-2.5 text-xl font-extrabold sm:text-2xl">
-            <span className="h-3 w-3 border-2 border-foreground bg-[var(--neon-purple)] max-sm:hidden" />
-            AI 是这样替你记的
-          </h2>
-          <p className="mt-2 text-[13.5px] font-semibold text-muted-foreground">装好 CLI 后，直接对你的 AI 说「帮我记一下」——剩下的它自己会做。</p>
-          <div className="mt-4 overflow-x-auto rounded-xl border-3 border-foreground bg-[#111] px-5 py-4 font-mono text-[13px] leading-loose text-[#e4e4e7] shadow-[4px_4px_0px_var(--shadow-color)]">
-            <div><span className="text-primary">$</span> extbrain todo add "周五前交周报" --due 2026-10-09</div>
-            <div className="text-[var(--neon-green)]">✓ #7 周五前交周报</div>
-            <div className="h-2.5" />
-            <div><span className="text-primary">$</span> extbrain note push 调研笔记.md --path ai/glm-使用笔记.md</div>
-            <div className="text-[var(--neon-green)]">✓ ai/glm-使用笔记.md（4.2 KB）</div>
-            <div className="h-2.5" />
-            <div><span className="text-primary">$</span> extbrain search "Supabase"</div>
-            <div className="text-gray-400">● ai/supabase-坑.md</div>
-            <div className="text-gray-400">  …session pooler 下 prepared statements 要禁用…</div>
-          </div>
+          <AiDemo />
 
           {/* 接入 AI 三步走（CLI + Skill 从本站直接下载，地址随当前访问域名动态生成） */}
           <div className="mt-4 rounded-xl border-3 border-foreground bg-card p-4 shadow-[4px_4px_0px_var(--shadow-color)] transition-shadow duration-300 hover:shadow-[6px_6px_0px_var(--shadow-color)] sm:p-5">

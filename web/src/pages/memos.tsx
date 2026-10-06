@@ -3,6 +3,7 @@ import { ChevronDown, MoreHorizontal } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { Textarea } from '@/components/ui/textarea'
+import { EmptyDemo } from '@/components/empty-demo'
 import { ApiError, memosApi, type Memo } from '@/lib/api'
 import { renderMD } from '@/lib/md'
 import { cn } from '@/lib/utils'
@@ -222,8 +223,15 @@ export function MemosPage() {
       ))}
 
       {memos?.length === 0 && (
-        <div className="anim-fade-up border-3 border-dashed border-foreground/40 py-8 text-center text-sm font-semibold text-muted-foreground">
-          还没有便签
+        <div className="anim-fade-up border-3 border-dashed border-foreground bg-card/60 px-6 py-10 text-center">
+          <div className="text-base font-extrabold">还没有便签</div>
+          <p className="mt-1.5 text-sm font-semibold text-muted-foreground">想到就记，一句话也值得；或对 AI 说一句：</p>
+          <EmptyDemo say="记一下：GLM-5.3 tool call 长上下文会丢参数名">
+            <div className="flex items-center gap-2.5 rounded-lg border-2 border-foreground bg-card px-3 py-2.5 text-left text-[13px] font-semibold shadow-[3px_3px_0px_var(--shadow-color)]">
+              <span className="shrink-0 font-mono text-[11px] font-semibold text-muted-foreground">14:32</span>
+              <span className="min-w-0 flex-1">GLM-5.3 tool call 长上下文会丢参数名，改用 JSON schema 严格模式</span>
+            </div>
+          </EmptyDemo>
         </div>
       )}
     </div>

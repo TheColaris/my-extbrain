@@ -10,6 +10,7 @@ import {
 } from '@/components/ui/dialog'
 import { ApiError, notePermApi, notesApi, reposApi, type NoteMeta, type NotePermRule, type RepoItem } from '@/lib/api'
 import { NotePermDialog } from '@/components/note-perm-dialog'
+import { EmptyDemo } from '@/components/empty-demo'
 import { cn } from '@/lib/utils'
 
 /* ================= 工具 ================= */
@@ -644,10 +645,13 @@ export function NotesPage() {
       ) : isEmptyKB ? (
         <div className="m-3.5 border-3 border-dashed border-foreground bg-card/60 px-5 py-8 text-center">
           <div className="text-sm font-extrabold">仓库「{curRepo?.name ?? ''}」还是空的</div>
-          <p className="mt-1.5 text-xs font-semibold text-muted-foreground">点「新建」手写一篇；或让 AI 通过 CLI 写进来：</p>
-          <div className="mt-3 inline-block border-2 border-foreground bg-background px-2.5 py-1.5 text-left font-mono text-[11px] font-semibold shadow-[3px_3px_0px_var(--shadow-color)]">
-            extbrain note push ./草稿.md --path ai/入门.md
-          </div>
+          <p className="mt-1.5 text-xs font-semibold text-muted-foreground">点「新建」手写一篇；或让 AI 写进来：</p>
+          <EmptyDemo say="把这份草稿存进知识库：ai/入门.md">
+            <div className="flex items-center gap-2.5 rounded-lg border-2 border-foreground bg-card px-3 py-2.5 text-left shadow-[3px_3px_0px_var(--shadow-color)]">
+              <span className="min-w-0 flex-1 truncate font-mono text-[12.5px] font-semibold">ai/入门.md</span>
+              <span className="shrink-0 rounded-md border-2 border-foreground bg-[var(--neon-green)] px-1.5 py-0.5 text-[11px] font-bold">新</span>
+            </div>
+          </EmptyDemo>
         </div>
       ) : sel.kind === 'recent' ? (
         recentNotes.length ? recentNotes.map((n) => noteRow(n, true)) : null
@@ -670,7 +674,13 @@ export function NotesPage() {
           {!childDirs.length && !dirNotes.length && (
             <div className="m-3.5 border-3 border-dashed border-foreground bg-card/60 px-5 py-8 text-center">
               <div className="text-sm font-extrabold">这个目录还没有笔记</div>
-              <p className="mt-1.5 text-xs font-semibold text-muted-foreground">在这里新建一篇，或让 AI 写进来</p>
+              <p className="mt-1.5 text-xs font-semibold text-muted-foreground">在这里新建一篇；或让 AI 写进来：</p>
+              <EmptyDemo say="把这篇文章存进知识库：ai/glm-5.3-使用笔记.md">
+                <div className="flex items-center gap-2.5 rounded-lg border-2 border-foreground bg-card px-3 py-2.5 text-left shadow-[3px_3px_0px_var(--shadow-color)]">
+                  <span className="min-w-0 flex-1 truncate font-mono text-[12.5px] font-semibold">ai/glm-5.3-使用笔记.md</span>
+                  <span className="shrink-0 rounded-md border-2 border-foreground bg-[var(--neon-green)] px-1.5 py-0.5 text-[11px] font-bold">新</span>
+                </div>
+              </EmptyDemo>
               <Button size="sm" className="mt-3" onClick={() => setDlgNew(true)}>＋ 在这里新建</Button>
             </div>
           )}

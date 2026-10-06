@@ -298,3 +298,35 @@
 @media (prefers-reduced-motion: reduce) {
   .bk-interactive { transition: none; }
 }
+
+/* ===== 上手引导（Tour）：遮罩挖洞 / 描边环 / 气泡；空态演示的光标闪烁 ===== */
+@keyframes demo-blink { 50% { opacity: 0; } }
+.demo-cursor { animation: demo-blink 1s steps(1) infinite; }
+.tour-rect {
+  position: fixed;
+  z-index: 90;
+  background: rgba(28, 24, 16, 0.58);
+  transition: left 0.35s cubic-bezier(0.2, 0.8, 0.3, 1), top 0.35s cubic-bezier(0.2, 0.8, 0.3, 1),
+    width 0.35s cubic-bezier(0.2, 0.8, 0.3, 1), height 0.35s cubic-bezier(0.2, 0.8, 0.3, 1);
+}
+.tour-ring {
+  position: fixed;
+  z-index: 91;
+  pointer-events: none;
+  border: 3px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 0 0 4px var(--neon-yellow);
+  opacity: 0;
+  transition: left 0.35s cubic-bezier(0.2, 0.8, 0.3, 1), top 0.35s cubic-bezier(0.2, 0.8, 0.3, 1),
+    width 0.35s cubic-bezier(0.2, 0.8, 0.3, 1), height 0.35s cubic-bezier(0.2, 0.8, 0.3, 1), opacity 0.25s;
+}
+.tour-ring.on { opacity: 1; }
+.tour-bubble {
+  position: fixed;
+  z-index: 92;
+  transition: left 0.35s cubic-bezier(0.2, 0.8, 0.3, 1), top 0.35s cubic-bezier(0.2, 0.8, 0.3, 1), width 0.35s;
+}
+@media (prefers-reduced-motion: reduce) {
+  .tour-rect, .tour-ring, .tour-bubble { transition: none; }
+  .demo-cursor { animation: none; }
+}

@@ -65,17 +65,22 @@ export function GuidePage({ guest }: { guest?: boolean }) {
           <h1 className="text-xl font-extrabold tracking-tight sm:text-2xl">操作手册</h1>
           <p className="mt-1 text-xs font-semibold text-muted-foreground">整份交给你的 AI，它就能替你记、替你查</p>
         </div>
-        <Tabs value={tab} onValueChange={switchTab}>
-          <TabsList>
-            {/* normal-case：BoldKit TabsTrigger 基类 uppercase 会把「Skill」转「SKILL」 */}
-            <TabsTrigger value="skill" className="normal-case">
-              Skill 版
-            </TabsTrigger>
-            <TabsTrigger value="mcp" className="normal-case">
-              MCP 版
-            </TabsTrigger>
-          </TabsList>
-        </Tabs>
+        <div className="flex items-center gap-2">
+          {!guest && (
+            <Button size="sm" variant="outline" onClick={() => nav('/dashboard?tour=1')}>▶ 重看上手引导</Button>
+          )}
+          <Tabs value={tab} onValueChange={switchTab}>
+            <TabsList>
+              {/* normal-case：BoldKit TabsTrigger 基类 uppercase 会把「Skill」转「SKILL」 */}
+              <TabsTrigger value="skill" className="normal-case">
+                Skill 版
+              </TabsTrigger>
+              <TabsTrigger value="mcp" className="normal-case">
+                MCP 版
+              </TabsTrigger>
+            </TabsList>
+          </Tabs>
+        </div>
       </div>
 
       {/* 二选一说明 */}

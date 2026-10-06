@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom'
 import { Button } from '@/components/ui/button'
 import { dashboardApi, type DashboardData } from '@/lib/api'
 import { copyText } from '@/lib/clipboard'
+import { aiInstallPrompt } from '@/lib/install-prompt'
 import { cn } from '@/lib/utils'
 
 function greet(): string {
@@ -126,15 +127,7 @@ function TrendChart({ daily }: { daily: NonNullable<DashboardData['daily']> }) {
 function GettingStarted() {
   const nav = useNavigate()
   const [copied, setCopied] = useState(false)
-  const aiPrompt = [
-    '帮我装 ' + location.origin + ' 这个「外脑」（我的个人信息库）Skill，并帮我配上我的 API 密钥：',
-    '',
-    '1. 安装 CLI 与 Skill：',
-    '   curl -fsSL ' + location.origin + '/install.sh | sh',
-    '2. 登录授权（会打开浏览器，我点一下「授权」即可）：',
-    '   extbrain auth login --server ' + location.origin,
-    '3. 装好后：我说「记一下」就用 extbrain todo add；我说「存起来」就写 MD 后 extbrain note push；回答我问题前先 extbrain search 查我的库。',
-  ].join('\n')
+  const aiPrompt = aiInstallPrompt()
   return (
     <section className="anim-fade-up d-3 mt-10">
       <div className="mb-3 flex items-center gap-2">
