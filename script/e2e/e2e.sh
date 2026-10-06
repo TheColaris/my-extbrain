@@ -138,9 +138,16 @@ case "$cmd" in
     stop_server
     start_server
     wait_health
-    # 第二段：写门③标记行（幂等）
+    # 第二段：写门③标记行 + 邮件服务配置（幂等）
+    # 邮件配置：注册验证码链路的 Ready 前置；key 为假值——E2E 模式下发信只落信箱、绝不外发
     dc exec -T db psql -U extbrain -d "$DB_NAME" -c \
-      "INSERT INTO tp_system_config (config_key, config_value, is_secret) VALUES ('e2e_cleanroom_marker', '1', 0) ON CONFLICT (config_key) DO NOTHING;" >/dev/null
+      "INSERT INTO tp_system_config (config_key, config_value, is_secret) VALUES
+         ('e2e_cleanroom_marker', '1', 0),
+         ('email.enabled', 'true', 0),
+         ('email.from_address', 'noreply@e2e.test', 0),
+         ('email.from_name', 'E2E 洁净室', 0),
+         ('email.resend_api_key', 're_e2e_cleanroom_fake', 1)
+       ON CONFLICT (config_key) DO NOTHING;" >/dev/null
     # 第三段：带门重启（三重门全开）
     echo "==> 带三重门重启"
     stop_server

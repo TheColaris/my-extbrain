@@ -20,10 +20,13 @@ func TestAccountProfileFlow(t *testing.T) {
 	db := testDB(t)
 	ctx := context.Background()
 	db.Exec("TRUNCATE tf_note, tf_note_content, tf_todo, tf_memo")
-	authSvc := &AuthService{DB: db, Cache: &CacheService{DB: db}, JWT: auth.NewManager("test-secret")}
+	cs := &CacheService{DB: db}
+	authSvc := &AuthService{DB: db, Cache: cs, JWT: auth.NewManager("test-secret")}
 	acc := &AccountService{DB: db, Auth: authSvc}
 
-	u, err := authSvc.Register(ctx, RegisterInput{Account: "13900000111", Password: "password123"})
+	// 邮箱注册（验证码直放缓存模拟发码；手机号注册已下掉）
+	_ = cs.Set(ctx, emailCodeKey("profile-flow@test.dev"), "123456", emailCodeTTL)
+	u, err := authSvc.Register(ctx, RegisterInput{Account: "profile-flow@test.dev", Password: "password123", EmailCode: "123456"})
 	if err != nil {
 		t.Fatalf("注册失败: %v", err)
 	}

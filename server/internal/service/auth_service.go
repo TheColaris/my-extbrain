@@ -30,12 +30,14 @@ type AuthService struct {
 	DB    *gorm.DB
 	Cache *CacheService
 	JWT   *auth.Manager
+	Email *EmailService
 }
 
 type RegisterInput struct {
-	Account  string            `json:"account" binding:"required"`
-	Password string            `json:"password" binding:"required"`
-	BindCh   model.BindChannel // phone/email（注册时由 account 类型识别，不由客户端指定）
+	Account   string            `json:"account" binding:"required"`
+	Password  string            `json:"password" binding:"required"`
+	EmailCode string            `json:"email_code"` // 邮箱注册必填（POST /auth/send-email-code 下发）
+	BindCh    model.BindChannel // phone/email（注册时由 account 类型识别，不由客户端指定）
 }
 
 type LoginInput struct {
@@ -56,11 +58,14 @@ func DetectChannel(account string) (model.BindChannel, string, bool) {
 	}
 }
 
-// Register 注册（手机号或邮箱二选一 + 密码）
+// Register 注册（仅邮箱 + 验证码验证；手机号注册已下掉，存量手机号账号不受影响）
 func (s *AuthService) Register(ctx context.Context, in RegisterInput) (*model.User, error) {
 	ch, ident, ok := DetectChannel(in.Account)
 	if !ok {
-		return nil, &UserError{"account 必须是合法手机号（1[3-9] 开头 11 位）或邮箱"}
+		return nil, &UserError{"account 必须是合法邮箱"}
+	}
+	if ch != model.BindChannelEmail {
+		return nil, &UserError{"当前仅支持邮箱注册"}
 	}
 	if len(in.Password) < pwdMinLen {
 		return nil, &UserError{"密码至少 8 位"}
@@ -74,16 +79,15 @@ func (s *AuthService) Register(ctx context.Context, in RegisterInput) (*model.Us
 	if cnt > 0 {
 		return nil, &UserError{"该账号已注册"}
 	}
+	// 邮箱验证码校验（一次性消费即删；失败即拒，不建号）
+	if err := s.consumeEmailCode(ctx, ident, in.EmailCode); err != nil {
+		return nil, err
+	}
 	hash, err := bcrypt.GenerateFromPassword([]byte(in.Password), bcrypt.DefaultCost)
 	if err != nil {
 		return nil, err
 	}
-	u := &model.User{PasswordHash: string(hash), NickName: defaultNick(ident)}
-	if ch == model.BindChannelPhone {
-		u.Phone = &ident
-	} else {
-		u.Email = &ident
-	}
+	u := &model.User{PasswordHash: string(hash), NickName: defaultNick(ident), Email: &ident}
 	if err := s.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		// 首个注册用户自动成为平台管理员（自托管开箱即用；存量库由迁移 0009 补齐）。
 		// Count 粗判 + sys_cache 原子计数收口：并发注册只有一个请求拿到 1（根除双 admin TOCTOU，
@@ -106,6 +110,67 @@ func (s *AuthService) Register(ctx context.Context, in RegisterInput) (*model.Us
 		return nil, err
 	}
 	return u, nil
+}
+
+// 注册验证码参数：10 分钟有效；同邮箱 60 秒重发冷却；全局日上限（Resend 免费层 100 封/天，留余量）。
+const (
+	emailCodeTTL      = 10 * time.Minute
+	emailCodeCool     = time.Minute
+	emailCodeDailyCap = 90
+)
+
+func emailCodeKey(email string) string { return "email_code:" + email }
+
+// SendEmailCode 发送注册验证码：格式校验 → 冷却 → 日上限 → 生成存缓存 → 发信（失败作废码、允许立即重试）。
+func (s *AuthService) SendEmailCode(ctx context.Context, email string) error {
+	a := strings.TrimSpace(strings.ToLower(email))
+	if !emailRe.MatchString(a) {
+		return &UserError{"邮箱格式不正确"}
+	}
+	if s.Email == nil || !s.Email.Ready() {
+		return &UserError{"邮件服务未配置或未启用，请联系管理员"}
+	}
+	if v, _ := s.Cache.Get(ctx, "email_code_cool:"+a); v != "" {
+		return &UserError{"发送过于频繁，请 1 分钟后再试"}
+	}
+	n, err := s.Cache.Incr(ctx, "email_code_daily:"+time.Now().Format("20060102"), 48*time.Hour)
+	if err != nil {
+		return err
+	}
+	if n > emailCodeDailyCap {
+		return &UserError{"今日验证码发送量已达上限，请明天再试"}
+	}
+	code := randomCode6()
+	if err := s.Cache.Set(ctx, emailCodeKey(a), code, emailCodeTTL); err != nil {
+		return err
+	}
+	if err := s.Email.SendCode(ctx, a, code, int(emailCodeTTL.Minutes())); err != nil {
+		s.Cache.Del(ctx, emailCodeKey(a))
+		var ue *UserError
+		if errors.As(err, &ue) {
+			return err
+		}
+		return &UserError{"验证码邮件发送失败，请稍后重试"}
+	}
+	_ = s.Cache.Set(ctx, "email_code_cool:"+a, "1", emailCodeCool)
+	return nil
+}
+
+// consumeEmailCode 校验并消费邮箱验证码（一次性；空/过期/不匹配均报错）。
+func (s *AuthService) consumeEmailCode(ctx context.Context, email, code string) error {
+	code = strings.TrimSpace(code)
+	if code == "" {
+		return &UserError{"请先获取邮箱验证码"}
+	}
+	saved, err := s.Cache.Get(ctx, emailCodeKey(email))
+	if err != nil || saved == "" {
+		return &UserError{"验证码已过期，请重新获取"}
+	}
+	if saved != code {
+		return &UserError{"验证码错误"}
+	}
+	s.Cache.Del(ctx, emailCodeKey(email))
+	return nil
 }
 
 // Login 登录：account 自动识别通道；同 (账号, IP) 组合连续失败 loginFailLimit 次锁定 loginFailWindow。

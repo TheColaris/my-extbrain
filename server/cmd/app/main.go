@@ -91,11 +91,12 @@ func main() {
 	}
 	indexSvc := service.NewIndexService(db, sysCfg)
 	indexSvc.Start(context.Background())
+	emailSvc := service.NewEmailService(db, sysCfg)
 	svcs := &api.Deps{
 		DB:      db,
 		Cfg:     cfg,
 		JWT:     jwt,
-		Auth:    &service.AuthService{DB: db, Cache: &service.CacheService{DB: db}, JWT: jwt},
+		Auth:    &service.AuthService{DB: db, Cache: &service.CacheService{DB: db}, JWT: jwt, Email: emailSvc},
 		Keys:    &service.APIKeyService{DB: db},
 		Logs:    &service.LogQueryService{DB: db},
 		Todos:   &service.TodoService{DB: db},
@@ -103,6 +104,7 @@ func main() {
 		Dash:    &service.DashboardService{DB: db},
 		Notes:   &service.NoteService{DB: db, Index: indexSvc, Vector: service.NewVectorSearcher(db, sysCfg)},
 		Sys:     sysCfg,
+		Email:   emailSvc,
 		Index:   indexSvc,
 		Ops:     &service.OpsService{DB: db},
 		Notify:  service.NewNotifyService(db, pushLogSvc),

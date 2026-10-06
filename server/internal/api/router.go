@@ -48,6 +48,8 @@ type Deps struct {
 	// 向量检索（迁移 0009）：平台配置 + 索引服务
 	Sys   *service.SysConfig
 	Index *service.IndexService
+	// 邮件服务（注册验证码；配置走 tp_system_config 热更新，无新表）
+	Email *service.EmailService
 	// 运营看板（仅管理员）：平台运营数据聚合
 	Ops *service.OpsService
 	// 目录权限（迁移 0010）：AI Key 对知识库目录的可见性
@@ -124,6 +126,7 @@ func Router(d Deps) *gin.Engine {
 	authH := &AuthHandler{Auth: d.Auth, RegisterEnabled: d.Cfg.RegisterEnabled}
 	pub.POST("/auth/register", authH.Register)
 	pub.POST("/auth/login", authH.Login)
+	pub.POST("/auth/send-email-code", authH.SendEmailCode)
 
 	// CLI 设备授权（start/poll 公开；approve 需登录）
 	cliH := &CLIAuthHandler{Auth: d.CLIAuth, Base: func(c *gin.Context) string {
@@ -226,12 +229,15 @@ func Router(d Deps) *gin.Engine {
 	web.DELETE("/push/subscriptions", nfH.Unsubscribe)
 	web.POST("/push/test", nfH.TestPush)
 
-	// 平台管理（Web JWT + 仅管理员）：embedding 配置 + 索引状态/重建 + 运营看板
-	admH := &AdminHandler{Sys: d.Sys, Index: d.Index, Ops: d.Ops}
+	// 平台管理（Web JWT + 仅管理员）：embedding 配置 + 邮件服务配置 + 索引状态/重建 + 运营看板
+	admH := &AdminHandler{Sys: d.Sys, Index: d.Index, Ops: d.Ops, DB: d.DB, Email: d.Email}
 	adm := v1.Group("/admin", JWTAuth(d.JWT, d.DB), AdminOnly(d.DB))
 	adm.GET("/embedding", admH.GetEmbedding)
 	adm.PUT("/embedding", admH.SaveEmbedding)
 	adm.POST("/embedding/test", admH.TestEmbedding)
+	adm.GET("/email", admH.GetEmail)
+	adm.PUT("/email", admH.SaveEmail)
+	adm.POST("/email/test", admH.TestEmail)
 	adm.GET("/index/status", admH.IndexStatus)
 	adm.POST("/index/rebuild", admH.Rebuild)
 	adm.GET("/ops", admH.OpsSummary)

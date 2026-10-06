@@ -9,6 +9,7 @@ import (
 	"extbrain-server/internal/migrate"
 	"extbrain-server/internal/model"
 
+	"golang.org/x/crypto/bcrypt"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
@@ -36,38 +37,58 @@ func testDB(t *testing.T) *gorm.DB {
 func TestRegisterLoginFlow(t *testing.T) {
 	db := testDB(t)
 	ctx := context.Background()
-	svc := &AuthService{DB: db, Cache: &CacheService{DB: db}, JWT: auth.NewManager("test-secret")}
+	cs := &CacheService{DB: db}
+	svc := &AuthService{DB: db, Cache: cs, JWT: auth.NewManager("test-secret")}
 
-	// 双通道注册
-	u1, err := svc.Register(ctx, RegisterInput{Account: "13800138000", Password: "password123"})
-	if err != nil || u1.Phone == nil || *u1.Phone != "13800138000" {
-		t.Fatalf("手机号注册失败: %v", err)
+	// 手机号注册已下掉（存量手机号账号登录保留，见下）
+	if _, err := svc.Register(ctx, RegisterInput{Account: "13800000001", Password: "password123"}); err == nil {
+		t.Fatal("手机号注册应被拒绝（当前仅支持邮箱注册）")
 	}
-	u2, err := svc.Register(ctx, RegisterInput{Account: "User@Example.COM ", Password: "password123"})
+
+	// 邮箱注册：验证码校验（测试直放缓存模拟发码）
+	if err := cs.Set(ctx, emailCodeKey("user@example.com"), "123456", emailCodeTTL); err != nil {
+		t.Fatalf("预置验证码失败: %v", err)
+	}
+	u2, err := svc.Register(ctx, RegisterInput{Account: "User@Example.COM ", Password: "password123", EmailCode: "123456"})
 	if err != nil || u2.Email == nil || *u2.Email != "user@example.com" {
 		t.Fatalf("邮箱注册失败（应归一小写+去空白）: %v email=%v", err, u2.Email)
 	}
-
-	// 重复注册（两通道占用都要拦）
-	if _, err := svc.Register(ctx, RegisterInput{Account: "13800138000", Password: "password123"}); err == nil {
-		t.Fatal("重复手机号应报错")
+	// 验证码一次性消费
+	if _, err := cs.Get(ctx, emailCodeKey("user@example.com")); err == nil {
+		t.Fatal("验证码应已被消费删除")
 	}
-	if _, err := svc.Register(ctx, RegisterInput{Account: "user@example.com", Password: "password123"}); err == nil {
+
+	// 缺码 / 错码
+	if _, err := svc.Register(ctx, RegisterInput{Account: "a@b.com", Password: "password123"}); err == nil {
+		t.Fatal("缺验证码应报错")
+	}
+	_ = cs.Set(ctx, emailCodeKey("a@b.com"), "654321", emailCodeTTL)
+	if _, err := svc.Register(ctx, RegisterInput{Account: "a@b.com", Password: "password123", EmailCode: "000000"}); err == nil {
+		t.Fatal("错误验证码应报错")
+	}
+
+	// 重复注册（占用检查先于验证码，命中"已注册"）
+	if _, err := svc.Register(ctx, RegisterInput{Account: "user@example.com", Password: "password123", EmailCode: "123456"}); err == nil {
 		t.Fatal("重复邮箱应报错")
 	}
 
 	// 非法输入
-	if _, err := svc.Register(ctx, RegisterInput{Account: "12345", Password: "password123"}); err == nil {
+	if _, err := svc.Register(ctx, RegisterInput{Account: "12345", Password: "password123", EmailCode: "123456"}); err == nil {
 		t.Fatal("非法账号应报错")
 	}
-	if _, err := svc.Register(ctx, RegisterInput{Account: "13800000088", Password: "short"}); err == nil {
+	if _, err := svc.Register(ctx, RegisterInput{Account: "c@d.com", Password: "short", EmailCode: "123456"}); err == nil {
 		t.Fatal("短密码应报错")
 	}
 
-	// 登录成功 + token
-	_, token, err := svc.Login(ctx, LoginInput{Account: "13800138000", Password: "password123"}, "1.2.3.4")
+	// 存量手机号账号：直接建行模拟（注册入口已关），登录仍可用
+	phone := "13800000001"
+	hash, _ := bcrypt.GenerateFromPassword([]byte("password123"), bcrypt.DefaultCost)
+	if err := db.Create(&model.User{Phone: &phone, PasswordHash: string(hash), NickName: "legacy"}).Error; err != nil {
+		t.Fatalf("存量账号建行失败: %v", err)
+	}
+	_, token, err := svc.Login(ctx, LoginInput{Account: "13800000001", Password: "password123"}, "1.2.3.4")
 	if err != nil || token == "" {
-		t.Fatalf("登录失败: %v", err)
+		t.Fatalf("存量手机号账号登录失败: %v", err)
 	}
 	if _, err := svc.JWT.Parse(token); err != nil {
 		t.Fatalf("token 解析失败: %v", err)
@@ -75,11 +96,11 @@ func TestRegisterLoginFlow(t *testing.T) {
 
 	// 密码错误 + 失败锁定
 	for i := 0; i < loginFailLimit; i++ {
-		if _, _, err := svc.Login(ctx, LoginInput{Account: "13800138000", Password: "wrong-pass"}, "1.2.3.4"); err == nil {
+		if _, _, err := svc.Login(ctx, LoginInput{Account: "13800000001", Password: "wrong-pass"}, "1.2.3.4"); err == nil {
 			t.Fatal("错误密码不应登录成功")
 		}
 	}
-	if _, _, err := svc.Login(ctx, LoginInput{Account: "13800138000", Password: "password123"}, "1.2.3.4"); err == nil {
+	if _, _, err := svc.Login(ctx, LoginInput{Account: "13800000001", Password: "password123"}, "1.2.3.4"); err == nil {
 		t.Fatal("达到失败上限后正确密码也应被锁")
 	}
 }

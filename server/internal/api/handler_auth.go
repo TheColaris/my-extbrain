@@ -23,7 +23,7 @@ func (h *AuthHandler) Register(c *gin.Context) {
 	}
 	var in service.RegisterInput
 	if err := c.ShouldBindJSON(&in); err != nil {
-		fail(c, errBadRequest("invalid_body", "body 必须是 {account, password} 的 JSON"))
+		fail(c, errBadRequest("invalid_body", "body 必须是 {account, password, email_code} 的 JSON"))
 		return
 	}
 	u, err := h.Auth.Register(c.Request.Context(), in)
@@ -37,6 +37,22 @@ func (h *AuthHandler) Register(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusCreated, gin.H{"token": token, "user": userOut(u)})
+}
+
+// POST /api/v1/auth/send-email-code（公开；注册验证码，60 秒冷却 + 日上限保护 Resend 额度）
+func (h *AuthHandler) SendEmailCode(c *gin.Context) {
+	var in struct {
+		Email string `json:"email" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&in); err != nil {
+		fail(c, errBadRequest("invalid_body", "body 必须是 {email} 的 JSON"))
+		return
+	}
+	if err := h.Auth.SendEmailCode(c.Request.Context(), in.Email); err != nil {
+		respondServiceErr(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"sent": true})
 }
 
 // POST /api/v1/auth/login

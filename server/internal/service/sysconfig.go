@@ -21,6 +21,11 @@ const (
 	CfgEmbeddingDim      = "embedding.dim"       // 向量维度（须与 tf_note_chunk.embedding 列一致）
 	CfgEmbeddingLastTest = "embedding.last_test" // JSON：最近一次测试连接结果
 	CfgRepoQuota         = "repo.quota"          // 每用户可创建的仓库数上限（不含默认仓库；<=0=不限制）
+	CfgEmailEnabled      = "email.enabled"       // "true"/"false"（注册验证码发信）
+	CfgEmailAPIKey       = "email.resend_api_key" // 敏感：接口出参只回打码
+	CfgEmailFromAddr     = "email.from_address"  // 发件地址（须为 Resend 已验证域名）
+	CfgEmailFromName     = "email.from_name"     // 发件人显示名
+	CfgEmailLastTest     = "email.last_test"     // JSON：最近一次测试发信结果
 )
 
 // 每用户仓库数默认上限（普通用户 3 个；可在 tp_system_config 配 repo.quota 调整；
@@ -130,6 +135,29 @@ func (s *SysConfig) Embedding() EmbeddingConfig {
 // Ready provider 已启用且三要素齐备（缺失=搜索链降级纯关键词）。
 func (c EmbeddingConfig) Ready() bool {
 	return c.Enabled && c.BaseURL != "" && c.APIKey != "" && c.Model != ""
+}
+
+// EmailConfig 当前生效的邮件服务配置（读内存；注册验证码发信）。
+type EmailConfig struct {
+	Enabled  bool
+	APIKey   string
+	FromAddr string
+	FromName string
+}
+
+// Email 读取当前配置（各要素均由页面配置，无代码默认值；Enabled 只认显式 true）。
+func (s *SysConfig) Email() EmailConfig {
+	return EmailConfig{
+		Enabled:  s.Get(CfgEmailEnabled) == "true",
+		APIKey:   s.Get(CfgEmailAPIKey),
+		FromAddr: s.Get(CfgEmailFromAddr),
+		FromName: s.Get(CfgEmailFromName),
+	}
+}
+
+// Ready 邮件服务已启用且要素齐备。
+func (c EmailConfig) Ready() bool {
+	return c.Enabled && c.APIKey != "" && c.FromAddr != ""
 }
 
 // RepoQuota 每用户仓库数上限（不含默认仓库）。

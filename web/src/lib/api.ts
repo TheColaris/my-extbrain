@@ -66,15 +66,20 @@ export interface AuthResp {
 }
 
 export const authApi = {
-  register: (account: string, password: string) =>
+  register: (account: string, password: string, emailCode: string) =>
     api<AuthResp>('/auth/register', {
       method: 'POST',
-      body: JSON.stringify({ account, password }),
+      body: JSON.stringify({ account, password, email_code: emailCode }),
     }),
   login: (account: string, password: string) =>
     api<AuthResp>('/auth/login', {
       method: 'POST',
       body: JSON.stringify({ account, password }),
+    }),
+  sendEmailCode: (email: string) =>
+    api<{ sent: boolean }>('/auth/send-email-code', {
+      method: 'POST',
+      body: JSON.stringify({ email }),
     }),
 }
 
@@ -590,6 +595,30 @@ export interface OpsSummary {
   }[]
 }
 
+/* ===== 邮件服务（Resend，注册验证码发信）===== */
+export interface EmailConfigOut {
+  enabled: boolean
+  from_address: string
+  from_name: string
+  api_key_hint: string
+  api_key_set: boolean
+  last_test: { ok: boolean; ms: number; to: string; error: string; at: string } | null
+}
+
+export interface EmailSaveInput {
+  enabled: boolean
+  from_address: string
+  from_name: string
+  api_key?: string
+}
+
+export interface EmailTestResult {
+  ok: boolean
+  ms: number
+  to: string
+  error: string
+}
+
 export const adminApi = {
   getEmbedding: () => api<EmbeddingConfigOut>('/admin/embedding'),
   saveEmbedding: (b: EmbeddingSaveInput) =>
@@ -599,4 +628,7 @@ export const adminApi = {
   indexStatus: () => api<IndexStatus>('/admin/index/status'),
   rebuild: () => api<{ ok: boolean }>('/admin/index/rebuild', { method: 'POST' }),
   ops: (days: 14 | 30) => api<OpsSummary>(`/admin/ops?days=${days}`),
+  getEmail: () => api<EmailConfigOut>('/admin/email'),
+  saveEmail: (b: EmailSaveInput) => api<{ ok: boolean }>('/admin/email', { method: 'PUT', body: JSON.stringify(b) }),
+  testEmail: () => api<EmailTestResult>('/admin/email/test', { method: 'POST' }),
 }

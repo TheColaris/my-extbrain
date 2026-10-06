@@ -23,7 +23,6 @@ import { AdminPage } from '@/pages/admin'
 import { OpsPage } from '@/pages/ops'
 import { ApiError, accountApi, authApi, getToken, keysApi, setToken, type User } from '@/lib/api'
 import { ErrorBoundary } from '@/components/error-boundary'
-import { BIND_CHANNEL, type BindChannel } from '@/lib/enums'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -181,22 +180,52 @@ export default function App() {
 function AuthPage({ onAuthed }: { onAuthed: (u: User) => void }) {
   const [sp] = useSearchParams()
   const [mode, setMode] = useState<Mode>(sp.get('tab') === 'reg' ? 'reg' : 'login')
-  const [channel, setChannel] = useState<BindChannel>(BIND_CHANNEL.phone)
   const [account, setAccount] = useState('')
   const [password, setPassword] = useState('')
   const [confirm, setConfirm] = useState('')
+  const [emailCode, setEmailCode] = useState('')
+  const [cool, setCool] = useState(0)
+  const [sendBusy, setSendBusy] = useState(false)
   const [err, setErr] = useState('')
   const [busy, setBusy] = useState(false)
+
+  // 验证码重发倒计时（60s）
+  useEffect(() => {
+    if (cool <= 0) return
+    const t = setTimeout(() => setCool((c) => c - 1), 1000)
+    return () => clearTimeout(t)
+  }, [cool])
+
+  async function sendCode() {
+    setErr('')
+    if (!account.trim()) {
+      setErr('请先输入邮箱')
+      return
+    }
+    setSendBusy(true)
+    try {
+      await authApi.sendEmailCode(account.trim())
+      setCool(60)
+    } catch (e) {
+      setErr(e instanceof ApiError ? e.message : '网络异常，请稍后重试')
+    } finally {
+      setSendBusy(false)
+    }
+  }
 
   async function submit() {
     setErr('')
     if (mode === 'reg') {
-      if (password !== confirm) {
-        setErr('两次密码不一致')
+      if (!account.trim()) {
+        setErr('请输入邮箱')
         return
       }
-      if (!account.trim()) {
-        setErr('请输入账号')
+      if (!emailCode.trim()) {
+        setErr('请输入邮箱验证码')
+        return
+      }
+      if (password !== confirm) {
+        setErr('两次密码不一致')
         return
       }
     }
@@ -205,7 +234,7 @@ function AuthPage({ onAuthed }: { onAuthed: (u: User) => void }) {
       const resp =
         mode === 'login'
           ? await authApi.login(account.trim(), password)
-          : await authApi.register(account.trim(), password)
+          : await authApi.register(account.trim(), password, emailCode.trim())
       setToken(resp.token)
       onAuthed(resp.user)
       // 回跳交给路由层：登录态的 /login → LoginDoneRedirect 读 redirect 参数跳原页
@@ -254,35 +283,35 @@ function AuthPage({ onAuthed }: { onAuthed: (u: User) => void }) {
           </div>
           {/* key=mode：切换时重挂载触发入场动画 */}
           <div key={mode} className="anim-fade-up space-y-4">
-            {mode === 'reg' && (
-              <div className="space-y-2">
-                <Label>注册方式</Label>
-                <div className="flex border-3 border-foreground shadow-[3px_3px_0px_var(--shadow-color)]">
-                  {([BIND_CHANNEL.phone, BIND_CHANNEL.email] as BindChannel[]).map((ch) => (
-                    <button
-                      key={ch}
-                      type="button"
-                      onClick={() => setChannel(ch)}
-                      className={`flex-1 py-1.5 text-sm font-bold transition-colors ${ch === channel ? 'bg-primary' : 'bg-background'} ${ch === BIND_CHANNEL.phone ? 'border-r-3 border-foreground' : ''}`}
-                    >
-                      {ch === BIND_CHANNEL.phone ? '手机号' : '邮箱'}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
             <div className="space-y-2">
-              <Label htmlFor="account">
-                {mode === 'login' ? '手机号 / 邮箱' : channel === BIND_CHANNEL.phone ? '手机号' : '邮箱'}
-              </Label>
+              <Label htmlFor="account">{mode === 'login' ? '手机号 / 邮箱' : '邮箱'}</Label>
               <Input
                 id="account"
                 value={account}
                 onChange={(e) => setAccount(e.target.value)}
-                placeholder={mode === 'login' ? '139… or you@example.com' : channel === BIND_CHANNEL.phone ? '139…' : 'you@example.com'}
+                placeholder={mode === 'login' ? '139… or you@example.com' : 'you@example.com'}
                 onKeyDown={(e) => e.key === 'Enter' && submit()}
               />
             </div>
+            {mode === 'reg' && (
+              <div className="space-y-2">
+                <Label htmlFor="code">验证码</Label>
+                <div className="flex gap-2">
+                  <Input
+                    id="code"
+                    value={emailCode}
+                    onChange={(e) => setEmailCode(e.target.value)}
+                    placeholder="6 位数字"
+                    maxLength={6}
+                    className="font-mono"
+                    onKeyDown={(e) => e.key === 'Enter' && submit()}
+                  />
+                  <Button type="button" variant="outline" disabled={cool > 0 || sendBusy} onClick={sendCode} className="min-w-[112px] shrink-0">
+                    {sendBusy ? <span className="bk-loader" /> : cool > 0 ? `${cool}s 后重发` : '发送验证码'}
+                  </Button>
+                </div>
+              </div>
+            )}
             <div className="space-y-2">
               <Label htmlFor="password">密码</Label>
               <Input id="password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder={mode === 'reg' ? '至少 8 位' : '••••••••'} onKeyDown={(e) => e.key === 'Enter' && submit()} />

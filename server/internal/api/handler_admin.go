@@ -4,23 +4,30 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
 
 	"extbrain-server/internal/embed"
+	"extbrain-server/internal/model"
 	"extbrain-server/internal/service"
 
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 )
 
-// AdminHandler 平台管理（仅管理员）：embedding 配置 + 索引状态/重建 + 运营看板。
+// AdminHandler 平台管理（仅管理员）：embedding 配置 + 邮件服务配置 + 索引状态/重建 + 运营看板。
 // 密钥口径：只回打码（MaskKey），保存时「空=保持不变」。
 type AdminHandler struct {
 	Sys   *service.SysConfig
 	Index *service.IndexService
 	Ops   *service.OpsService
+	DB    *gorm.DB
+	Email *service.EmailService
 }
+
+var adminEmailRe = regexp.MustCompile(`^[^\s@]+@[^\s@]+\.[^\s@]+$`)
 
 // GET /api/v1/admin/embedding
 func (h *AdminHandler) GetEmbedding(c *gin.Context) {
@@ -178,6 +185,105 @@ func (h *AdminHandler) TestEmbedding(c *gin.Context) {
 		"error": res["error"], "at": time.Now().Format(time.RFC3339),
 	})
 	_ = h.Sys.Set(c.Request.Context(), map[string]string{service.CfgEmbeddingLastTest: string(rec)})
+	c.JSON(http.StatusOK, res)
+}
+
+// GET /api/v1/admin/email
+func (h *AdminHandler) GetEmail(c *gin.Context) {
+	cfg := h.Sys.Email()
+	c.JSON(http.StatusOK, gin.H{
+		"enabled":      cfg.Enabled,
+		"from_address": cfg.FromAddr,
+		"from_name":    cfg.FromName,
+		"api_key_hint": service.MaskKey(cfg.APIKey),
+		"api_key_set":  cfg.APIKey != "",
+		"last_test":    h.emailLastTest(),
+	})
+}
+
+func (h *AdminHandler) emailLastTest() json.RawMessage {
+	raw := h.Sys.Get(service.CfgEmailLastTest)
+	if raw == "" || !json.Valid([]byte(raw)) {
+		return nil
+	}
+	return json.RawMessage(raw)
+}
+
+// PUT /api/v1/admin/email（{enabled, from_address, from_name, api_key?}；api_key 空=不变）
+func (h *AdminHandler) SaveEmail(c *gin.Context) {
+	var in struct {
+		Enabled     *bool  `json:"enabled"`
+		FromAddress string `json:"from_address"`
+		FromName    string `json:"from_name"`
+		APIKey      string `json:"api_key"`
+	}
+	if err := c.ShouldBindJSON(&in); err != nil {
+		fail(c, errBadRequest("invalid_body", "body 是 {enabled, from_address, from_name, api_key?}"))
+		return
+	}
+	cur := h.Sys.Email()
+	enabled := cur.Enabled
+	if in.Enabled != nil {
+		enabled = *in.Enabled
+	}
+	fromAddr := strings.TrimSpace(in.FromAddress)
+	fromName := strings.TrimSpace(in.FromName)
+	key := strings.TrimSpace(in.APIKey)
+	if fromAddr != "" && !adminEmailRe.MatchString(fromAddr) {
+		fail(c, errBadRequest("invalid_from_address", "发件地址格式不正确"))
+		return
+	}
+	if key == "" {
+		key = cur.APIKey
+	}
+	if enabled && fromAddr == "" {
+		fail(c, errBadRequest("missing_from_address", "启用邮件服务前需填写发件地址"))
+		return
+	}
+	if enabled && key == "" {
+		fail(c, errBadRequest("missing_key", "启用邮件服务前需填写 API Key"))
+		return
+	}
+	kv := map[string]string{
+		service.CfgEmailEnabled:  strconv.FormatBool(enabled),
+		service.CfgEmailFromAddr: fromAddr,
+		service.CfgEmailFromName: fromName,
+	}
+	if key != cur.APIKey {
+		kv[service.CfgEmailAPIKey] = key
+	}
+	if err := h.Sys.Set(c.Request.Context(), kv, service.CfgEmailAPIKey); err != nil {
+		fail(c, errInternal("保存失败: "+err.Error()))
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"ok": true})
+}
+
+// POST /api/v1/admin/email/test（发往当前管理员绑定邮箱；结果记 last_test 供刷新回显）
+func (h *AdminHandler) TestEmail(c *gin.Context) {
+	var u model.User
+	if err := h.DB.WithContext(c.Request.Context()).First(&u, uid(c)).Error; err != nil {
+		fail(c, errInternal("读取当前用户失败"))
+		return
+	}
+	if u.Email == nil || strings.TrimSpace(*u.Email) == "" {
+		fail(c, errBadRequest("no_email", "当前账号未绑定邮箱，无法接收测试邮件"))
+		return
+	}
+	to := strings.TrimSpace(*u.Email)
+	start := time.Now()
+	err := h.Email.Test(c.Request.Context(), to)
+	ms := time.Since(start).Milliseconds()
+	res := gin.H{"ok": err == nil, "ms": ms, "to": to, "error": ""}
+	if err != nil {
+		res["ok"] = false
+		res["error"] = err.Error()
+	}
+	rec, _ := json.Marshal(gin.H{
+		"ok": res["ok"], "ms": ms, "to": to,
+		"error": res["error"], "at": time.Now().Format(time.RFC3339),
+	})
+	_ = h.Sys.Set(c.Request.Context(), map[string]string{service.CfgEmailLastTest: string(rec)})
 	c.JSON(http.StatusOK, res)
 }
 

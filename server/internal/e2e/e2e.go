@@ -33,6 +33,7 @@ const MarkerKey = "e2e_cleanroom_marker"
 const (
 	ChannelWebhook = "webhook" // 钉钉/飞书机器人
 	ChannelWebPush = "webpush" // 浏览器推送
+	ChannelEmail   = "email"   // 邮件（注册验证码，Resend）
 )
 
 var mu sync.RWMutex

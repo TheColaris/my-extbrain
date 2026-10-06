@@ -21,3 +21,4 @@ node_modules/
 script/e2e/bin/
 script/e2e/.cli-home/
 script/e2e/.e2e-vapid.env
+script/e2e/.server.pid
