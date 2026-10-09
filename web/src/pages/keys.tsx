@@ -65,7 +65,8 @@ export function KeysPage() {
             <TableRow>
               <TableHead>名称</TableHead>
               <TableHead>Key</TableHead>
-              <TableHead>权限</TableHead>
+              {/* data-tour：上手引导第 5 步聚光目标（权限列） */}
+              <TableHead data-tour="key-scope">权限</TableHead>
               <TableHead className="hidden md:table-cell">最近使用</TableHead>
               <TableHead className="hidden md:table-cell">创建</TableHead>
               <TableHead className="hidden lg:table-cell">到期</TableHead>
@@ -77,7 +78,7 @@ export function KeysPage() {
               <TableRow key={k.id} className="anim-slide-in" style={{ animationDelay: `${0.08 + i * 0.05}s` }}>
                 <TableCell className="font-bold">{k.key_name}</TableCell>
                 <TableCell className="font-mono text-xs text-muted-foreground">{k.key_hint}</TableCell>
-                <TableCell>
+                <TableCell data-tour="key-scope">
                   <ScopeBadge scope={k.scope} />
                 </TableCell>
                 <TableCell className="hidden whitespace-nowrap text-xs text-muted-foreground md:table-cell">{fmtTime(k.last_use_time)}</TableCell>

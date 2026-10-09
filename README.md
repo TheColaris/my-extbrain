@@ -8,6 +8,8 @@
 
 AI 通过 CLI 或 MCP 直接读写（API Key 鉴权、目录级权限、全程审计），人通过 Web 面板管理——一切为「人机共用一个本子」和「可复制」设计：任何笔记都能整篇复制原文，随时喂给别的 AI。
 
+**在线体验**：<https://my-extbrain.bot.cd/>（官方示例站点）
+
 - **单二进制部署**：Go 编译时把前端 embed 进一个可执行文件，Docker Compose 一条命令起服务
 - **三种接入，数据同源**：CLI / MCP / Web 面板，改一处三端可见
 - **纯 Markdown 存储**：笔记就是 `.md` 原文，支持整体导出，没有私有格式锁定
@@ -49,6 +51,23 @@ curl http://127.0.0.1:8080/healthz
 ```
 
 浏览器打开 `http://127.0.0.1:8080` 注册账号——**首个注册用户自动成为管理员**。数据库也可换用 Supabase（`DATABASE_URL` 指向其 Session Pooler 即可），细节见 [server/README.md](server/README.md)。
+
+### 注册前置：邮件服务（Resend）
+
+注册走**邮箱验证码**（[Resend](https://resend.com) 发信，配置存数据库、管理后台可改）。全新实例还没有管理员可进后台配置，先在库里写入并重启（Key 只在库、接口只回打码）：
+
+```bash
+docker compose -f server/docker-compose.yaml exec -T db psql -U extbrain -d extbrain -c "
+INSERT INTO tp_system_config (config_key, config_value, is_secret) VALUES
+  ('email.enabled', 'true', 0),
+  ('email.resend_api_key', 're_你的Resend密钥', 1),
+  ('email.from_address', 'noreply@你的已验证域名', 0),
+  ('email.from_name', '我的外脑', 0)
+ON CONFLICT (config_key) DO NOTHING;"
+docker compose -f server/docker-compose.yaml restart app
+```
+
+注册登录后，可在「平台管理 → 邮件服务」页内修改配置并测试发信；首次进入面板会自动播放 9 步上手引导，随时可在「操作手册」页重看。
 
 ### 公网部署安全基线
 

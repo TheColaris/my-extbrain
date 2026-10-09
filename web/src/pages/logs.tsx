@@ -80,8 +80,8 @@ export function LogsPage() {
         </div>
       </div>
 
-      {/* 筛选行 */}
-      <div className="anim-fade-up flex flex-wrap gap-3">
+      {/* 筛选行（data-tour：上手引导第 8 步聚光目标） */}
+      <div className="anim-fade-up flex flex-wrap gap-3" data-tour="log-filters">
         <Select value={keyFilter} onValueChange={setKeyFilter}>
           <SelectTrigger className="w-[170px]">
             <SelectValue />

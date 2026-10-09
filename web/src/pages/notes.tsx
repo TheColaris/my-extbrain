@@ -190,6 +190,17 @@ export function NotesPage() {
   const [repoForm, setRepoForm] = useState<{ mode: 'new' } | { mode: 'rename'; repo: RepoItem } | null>(null)
   const [permDlg, setPermDlg] = useState<{ folder: string } | null>(null) // null=关；folder=''=仓库级规则
 
+  /* 上手引导页内步（?tour=menu|perm，tour-guide.tsx 第 6/7 步）：驱动仓库菜单 / 权限弹窗；
+     切步先复位再按需打开（仅在参数变化时跑，不干扰日常操作） */
+  const tourParam = sp.get('tour')
+  useEffect(() => {
+    setRepoMenu(false)
+    setPermDlg(null)
+    setTreeDrawer(false)
+    if (tourParam === 'menu') { setRepoMenu(true); setTreeDrawer(true) }
+    else if (tourParam === 'perm') setPermDlg({ folder: '' })
+  }, [tourParam])
+
   const searchSeq = useRef(0)
 
   const curRepo = useMemo(
@@ -369,7 +380,7 @@ export function NotesPage() {
 
   /* ---------- 仓库切换器（树顶；仓库 > 文件夹 > 笔记） ---------- */
   const repoSwitcher = (
-    <div className="relative border-b-3 border-foreground" data-role="repo-switcher">
+    <div className="relative border-b-3 border-foreground" data-role="repo-switcher" data-tour="repo-switcher">
       <button
         type="button"
         data-role="repo-btn"
@@ -388,7 +399,7 @@ export function NotesPage() {
       {repoMenu && (
         <>
           <div className="fixed inset-0 z-40" onClick={() => setRepoMenu(false)} />
-          <div className="absolute inset-x-2 top-full z-50 mt-1 overflow-hidden rounded-xl border-3 border-foreground bg-card shadow-[5px_5px_0px_var(--shadow-color)]" data-role="repo-menu">
+          <div className="absolute inset-x-2 top-full z-50 mt-1 overflow-hidden rounded-xl border-3 border-foreground bg-card shadow-[5px_5px_0px_var(--shadow-color)]" data-role="repo-menu" data-tour="repo-switcher">
             {(repos ?? []).map((r) => (
               <button
                 key={r.id}

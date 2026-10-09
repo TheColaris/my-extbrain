@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { Button } from '@/components/ui/button'
 import { copyText } from '@/lib/clipboard'
 import { BrandMark } from '@/components/brand-mark'
+import { GitHubNavBadge, GitHubFooterLink } from '@/components/github-badge'
 import { cn } from '@/lib/utils'
 
 /* ===== AI 演示（循环动画，2026-10-06 指引动画 C 批；原型 prototype/landing.html）=====
@@ -178,17 +179,20 @@ export function LandingPage({ user }: { user: { nick_name: string } | null }) {
       <header className="sticky top-0 z-10 border-b-3 border-foreground bg-card">
         <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-6">
           <div className="flex items-center gap-2.5 font-extrabold">
-            <span className="flex h-9 w-9 items-center justify-center rounded-lg border-3 border-foreground bg-primary shadow-[3px_3px_0px_var(--shadow-color)]">
+            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border-3 border-foreground bg-primary shadow-[3px_3px_0px_var(--shadow-color)]">
               <BrandMark className="h-[19px] w-[19px]" />
             </span>
-            我的外脑
-            <span className="font-mono text-xs font-semibold text-muted-foreground">my-extbrain</span>
+            <span className="whitespace-nowrap">我的外脑</span>
+            <span className="hidden font-mono text-xs font-semibold text-muted-foreground sm:inline">my-extbrain</span>
           </div>
-          {user ? (
-            <Button size="sm" onClick={() => nav('/dashboard')}>进入我的外脑 →</Button>
-          ) : (
-            <Button size="sm" variant="outline" onClick={() => nav('/login')}>登录</Button>
-          )}
+          <div className="flex shrink-0 items-center gap-2.5">
+            <GitHubNavBadge />
+            {user ? (
+              <Button size="sm" onClick={() => nav('/dashboard')}>进入我的外脑 →</Button>
+            ) : (
+              <Button size="sm" variant="outline" onClick={() => nav('/login')}>登录</Button>
+            )}
+          </div>
         </div>
       </header>
 
@@ -308,7 +312,10 @@ export function LandingPage({ user }: { user: { nick_name: string } | null }) {
       <footer className="mt-14 border-t-3 border-foreground bg-card">
         <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-2.5 px-6 py-5 text-[12.5px] font-bold text-muted-foreground">
           <span>Go + React · Docker 自托管 · 数据在自己手里</span>
-          <span>开源（MIT）· my-extbrain</span>
+          <span className="inline-flex items-center gap-1.5">
+            开源（MIT）·
+            <GitHubFooterLink />
+          </span>
         </div>
       </footer>
     </div>

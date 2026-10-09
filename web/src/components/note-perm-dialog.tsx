@@ -81,7 +81,7 @@ export function NotePermDialog({ open, onOpenChange, repoId, repoName, folder, r
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[460px]" data-role="perm-dialog">
+      <DialogContent className="sm:max-w-[460px]" data-role="perm-dialog" data-tour="perm-dialog">
         <DialogHeader>
           <DialogTitle>{label}</DialogTitle>
         </DialogHeader>
