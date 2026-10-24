@@ -23,9 +23,10 @@ import (
 
 // NotifyService —— 机器人渠道 CRUD 与钉钉/飞书 webhook 推送（加签）。
 type NotifyService struct {
-	DB      *gorm.DB
-	Client  *http.Client
-	PushLog *PushLogService // 渠道测试也留痕（nil=不留痕）
+	DB           *gorm.DB
+	Client       *http.Client
+	PushLog      *PushLogService // 渠道测试也留痕（nil=不留痕）
+	AllowPrivate bool            // 测试用：允许 http/内网地址（生产恒 false）
 }
 
 var (
@@ -34,7 +35,7 @@ var (
 )
 
 func NewNotifyService(db *gorm.DB, pushLog *PushLogService) *NotifyService {
-	return &NotifyService{DB: db, Client: &http.Client{Timeout: 10 * time.Second}, PushLog: pushLog}
+	return &NotifyService{DB: db, Client: NewSafeHTTPClient(10 * time.Second), PushLog: pushLog}
 }
 
 type ChannelInput struct {
@@ -55,8 +56,8 @@ func (s *NotifyService) Create(ctx context.Context, userID int64, in ChannelInpu
 	if in.ChannelType != model.ChannelTypeDingTalk && in.ChannelType != model.ChannelTypeFeishu {
 		return nil, &UserError{"channel_type 必须是 dingtalk 或 feishu"}
 	}
-	if !strings.HasPrefix(in.WebhookURL, "https://") {
-		return nil, &UserError{"webhook_url 必须是 https:// 开头的机器人 Webhook 地址"}
+	if !s.AllowPrivate && !IsPublicHTTPS(in.WebhookURL) {
+		return nil, &UserError{"webhook_url 必须是公网 https:// 地址（不允许内网/回环地址）"}
 	}
 	c := &model.NotifyChannel{
 		UserID: userID, ChannelType: in.ChannelType, WebhookURL: in.WebhookURL,
@@ -185,6 +186,9 @@ func (s *NotifyService) postJSON(u string, body any) error {
 	if e2e.Enabled() {
 		e2e.Capture(s.DB, e2e.ChannelWebhook, u, webhookTitle(body), webhookText(body), string(b))
 		return nil
+	}
+	if !s.AllowPrivate && !IsPublicHTTPS(u) {
+		return fmt.Errorf("webhook 目标地址不允许（须为公网 https）")
 	}
 	resp, err := s.Client.Post(u, "application/json", bytes.NewReader(b))
 	if err != nil {

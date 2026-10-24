@@ -218,20 +218,29 @@ export function NotesPage() {
   const load = useCallback(async () => {
     if (curRepoId == null) return []
     try {
-      const r = await notesApi.list('', curRepo?.name)
-      setNotes(r.notes ?? [])
+      // 服务端单页上限 500：循环翻页拼完整列表（大库不再静默丢笔记/目录）
+      const all: NoteMeta[] = []
+      let offset = 0
+      for (;;) {
+        const r = await notesApi.list('', curRepo?.name, 500, offset)
+        const page = r.notes ?? []
+        all.push(...page)
+        if (!r.truncated || page.length === 0) break
+        offset += 500 // 按请求页长推进（服务端可能过滤受限目录，不能用返回条数）
+      }
+      setNotes(all)
       setError('')
       // 默认展开一级目录（首次加载时）
       setExpanded((prev) => {
         if (prev.size) return prev
         const first = new Set<string>()
-        for (const n of r.notes ?? []) {
+        for (const n of all) {
           const d = dirOf(n.path)
           if (d) first.add(d.split('/')[0])
         }
         return first
       })
-      return r.notes ?? []
+      return all
     } catch (e) {
       setError(e instanceof ApiError ? e.message : '网络异常或服务不可用')
       setNotes([])
@@ -268,18 +277,19 @@ export function NotesPage() {
     setRepoMenu(false)
   }
 
-  // 首次加载 + 浮窗内 删除/恢复/重命名/保存 后联动刷新列表
+  // 首次加载仓库清单 + 权限规则
   useEffect(() => {
     void loadRepos()
     notePermApi.list().then((r) => setPermRules(r.rules ?? [])).catch(() => setPermRules([]))
-    const h = () => { void load() }
-    window.addEventListener('extbrain:notes-changed', h)
-    return () => window.removeEventListener('extbrain:notes-changed', h)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  // 列表加载 + 浮窗内 删除/恢复/重命名/保存 后联动刷新（监听器随当前 load 重建，避免捕获初始空仓库闭包）
   useEffect(() => {
     void load()
+    const h = () => { void load() }
+    window.addEventListener('extbrain:notes-changed', h)
+    return () => window.removeEventListener('extbrain:notes-changed', h)
   }, [load])
 
   /* ---------- 搜索（防抖 300ms，seq 防乱序） ---------- */

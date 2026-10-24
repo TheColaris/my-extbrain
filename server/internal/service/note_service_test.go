@@ -11,6 +11,31 @@ import (
 	"github.com/lib/pq"
 )
 
+func TestCleanNotePath(t *testing.T) {
+	ok := map[string]string{
+		"ai/foo":        "ai/foo.md", // 末段无扩展名自动补 .md
+		"ai/foo.md":     "ai/foo.md",
+		"ai/foo.txt":    "ai/foo.txt", // 已有扩展名不动
+		"ai/.gitignore": "ai/.gitignore",
+		"/根.md/":        "根.md",
+	}
+	for in, want := range ok {
+		got, err := CleanNotePath(in)
+		if err != nil || got != want {
+			t.Fatalf("CleanNotePath(%q)=%q err=%v，期望 %q", in, got, err, want)
+		}
+	}
+	for _, bad := range []string{"", "a/../b", "a//b", "a/./b"} {
+		if _, err := CleanNotePath(bad); err == nil {
+			t.Fatalf("CleanNotePath(%q) 应报错", bad)
+		}
+	}
+	// 目录前缀（List/权限）不补扩展名
+	if got, err := CleanPath("ai/foo"); err != nil || got != "ai/foo" {
+		t.Fatalf("CleanPath 不应用于补扩展名: %q %v", got, err)
+	}
+}
+
 func TestNoteLifecycle(t *testing.T) {
 	url := os.Getenv("TEST_DATABASE_URL")
 	if url == "" {

@@ -29,6 +29,9 @@ func registerTools(e *env) {
 	registerWhoami(e)
 }
 
+// noteListPage MCP 单次列表条数（与 service 默认分页一致；note_pull 会循环翻页）
+const noteListPage = 500
+
 /* ============ 检索 ============ */
 
 type searchIn struct {
@@ -454,7 +457,7 @@ func registerNoteTools(e *env) {
 			if err != nil {
 				return "", err
 			}
-			notes, dirs, err := e.d.Notes.List(ctx, e.id.UserID, repo.ID, in.Prefix, view)
+			notes, dirs, truncated, err := e.d.Notes.ListPage(ctx, e.id.UserID, repo.ID, in.Prefix, view, noteListPage, 0)
 			if err != nil {
 				return "", err
 			}
@@ -466,6 +469,9 @@ func registerNoteTools(e *env) {
 				fmt.Fprintf(&sb, "   %s\n", n.Path)
 			}
 			fmt.Fprintf(&sb, "（%d 篇笔记，%d 个目录）", len(notes), len(dirs))
+			if truncated {
+				sb.WriteString("；结果已截断，可用 prefix 缩小范围查看其余笔记")
+			}
 			return sb.String(), nil
 		})
 
@@ -527,9 +533,18 @@ func registerNoteTools(e *env) {
 			if err != nil {
 				return "", err
 			}
-			notes, _, err := e.d.Notes.List(ctx, e.id.UserID, repo.ID, in.Prefix, view)
-			if err != nil {
-				return "", err
+			var notes []model.Note
+			const maxPullNotes = 10000
+			for offset := 0; ; {
+				page, _, more, err := e.d.Notes.ListPage(ctx, e.id.UserID, repo.ID, in.Prefix, view, 1000, offset)
+				if err != nil {
+					return "", err
+				}
+				notes = append(notes, page...)
+				if !more || len(page) == 0 || len(notes) >= maxPullNotes {
+					break
+				}
+				offset += 1000 // 按请求页长推进（目录权限过滤会让返回条数变少）
 			}
 			if len(notes) == 0 {
 				return "该范围下没有笔记。", nil
@@ -714,12 +729,8 @@ func registerWhoami(e *env) {
 func (e *env) resolveRepo(ctx context.Context, name string) (*model.Repo, error) {
 	name = strings.TrimSpace(name)
 	if name == "" {
-		id, err := e.d.Repos.DefaultID(ctx, e.id.UserID)
-		if err != nil {
-			return nil, err
-		}
-		// 缺省仓名不查库（约定文案）；清单场景 note_list 自己会拉全量
-		return &model.Repo{ID: id, Name: "默认仓库"}, nil
+		// 取真实默认仓行（默认仓库可改名；note_move 等返回面注记要用真名）
+		return e.d.Repos.Default(ctx, e.id.UserID)
 	}
 	r, err := e.d.Repos.ResolveByName(ctx, e.id.UserID, name)
 	if err != nil {

@@ -83,10 +83,14 @@ func (s *ShareService) Upsert(ctx context.Context, userID, repoID int64, rawPath
 }
 
 // GetByPath owner 视角：该笔记的活跃分享（无则 nil，不报错）。path 为 repoID 仓库内相对路径。
-func (s *ShareService) GetByPath(ctx context.Context, userID, repoID int64, rawPath string) (*model.NoteShare, error) {
-	p, err := CleanPath(rawPath)
+// view 与笔记读同权：AI Key 对受限目录不可见时按 ErrNoteDenied 拒绝（防借分享 token 绕过目录权限）。
+func (s *ShareService) GetByPath(ctx context.Context, userID, repoID int64, rawPath string, view *PermView) (*model.NoteShare, error) {
+	p, err := CleanNotePath(rawPath)
 	if err != nil {
 		return nil, err
+	}
+	if !view.Allowed(repoID, p) {
+		return nil, ErrNoteDenied
 	}
 	var note model.Note
 	if err := s.DB.WithContext(ctx).

@@ -84,12 +84,18 @@ func GuideMcpMd(publicBase string) gin.HandlerFunc {
 	}
 }
 
-// Downloads 静态目录（CLI 四平台包 + skill 包）；目录缺失时 404 明确提示
+// Downloads 静态目录（CLI 四平台包 + skill 包）；目录缺失时 404 明确提示。
+// 拒绝目录列表（"./" 与任意以 / 结尾的路径），只允许具体文件。
 func Downloads(dir string) gin.HandlerFunc {
 	fs := http.FileServer(http.Dir(dir))
 	return func(c *gin.Context) {
 		if c.Request.Method != http.MethodGet && c.Request.Method != http.MethodHead {
 			c.JSON(http.StatusMethodNotAllowed, gin.H{"error": gin.H{"code": "method_not_allowed", "message": "仅支持 GET"}})
+			return
+		}
+		fp := c.Param("filepath")
+		if fp == "" || fp == "/" || strings.HasSuffix(fp, "/") {
+			c.JSON(http.StatusNotFound, gin.H{"error": gin.H{"code": "not_found", "message": "文件不存在"}})
 			return
 		}
 		http.StripPrefix("/downloads", fs).ServeHTTP(c.Writer, c.Request)

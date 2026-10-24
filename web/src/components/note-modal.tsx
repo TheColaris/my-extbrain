@@ -44,9 +44,11 @@ export function NoteModal() {
     next.delete('repo')
     setSp(next, { replace: true })
   }
-  const changePath = (p: string) => {
+  const changePath = (p: string, repoName?: string) => {
     const next = new URLSearchParams(sp)
     next.set('note', p)
+    if (repoName) next.set('repo', repoName)
+    else next.delete('repo')
     setSp(next, { replace: true })
   }
 
@@ -61,6 +63,8 @@ export function NoteModal() {
 /** 单篇直达视图：/notes/<笔记路径>（不透明全屏遮罩，只呈现这一张卡；关闭回知识库） */
 export function NoteSoloView({ path, initialMode }: { path: string; initialMode?: 'read' | 'edit' }) {
   const nav = useNavigate()
+  const [sp] = useSearchParams()
+  const repo = sp.get('repo') ?? ''
   return (
     <div className="fixed inset-0 z-50 overflow-y-auto bg-background">
       <div className="relative z-10 flex items-center gap-2.5 px-7 py-5">
@@ -82,9 +86,12 @@ export function NoteSoloView({ path, initialMode }: { path: string; initialMode?
       </div>
       <div className="flex min-h-[calc(100vh-70px)] items-start justify-center p-6 max-md:p-3">
         <NoteModalCard
-          path={path} initialMode={initialMode}
+          path={path} repo={repo} initialMode={initialMode}
           onClose={() => nav('/notes')}
-          onPathChange={(p) => nav('/notes/' + encNotePath(p), { replace: true })}
+          onPathChange={(p, repoName) => nav(
+            '/notes/' + encNotePath(p) + (repoName ? `?repo=${encodeURIComponent(repoName)}` : ''),
+            { replace: true },
+          )}
         />
       </div>
     </div>
@@ -97,7 +104,7 @@ function NoteModalCard({ path, repo, initialMode = 'read', onClose, onPathChange
   initialMode?: 'read' | 'edit'
   repo?: string
   onClose: () => void
-  onPathChange: (p: string) => void
+  onPathChange: (p: string, repoName?: string) => void
 }) {
   const [phase, setPhase] = useState<'loading' | 'done' | 'missing'>('loading')
   const [note, setNote] = useState<NoteFull | null>(null)
@@ -199,7 +206,7 @@ function NoteModalCard({ path, repo, initialMode = 'read', onClose, onPathChange
       setRenaming(false)
       notifyNotesChanged()
       undoToast(`已移动到 ${r.note.path}`)
-      onPathChange(r.note.path)
+      onPathChange(r.note.path, r.note.repo_name)
     } catch (e) {
       setRnErr(e instanceof ApiError ? e.message : '移动失败')
     } finally {
@@ -361,7 +368,7 @@ function NoteModalCard({ path, repo, initialMode = 'read', onClose, onPathChange
       )}
 
       {/* 分享（链接 / 二维码 / 图片） */}
-      <ShareDialog open={sharing} onOpenChange={setSharing} path={path} note={note} />
+      <ShareDialog open={sharing} onOpenChange={setSharing} path={path} repo={repo || undefined} note={note} />
 
       {/* 重命名 / 移动 */}
       <Dialog open={renaming} onOpenChange={(v) => !v && setRenaming(false)}>
@@ -399,7 +406,7 @@ function NoteModalCard({ path, repo, initialMode = 'read', onClose, onPathChange
             <Button
               onClick={async () => {
                 try {
-                  const n = await notesApi.get(path)
+                  const n = await notesApi.get(path, false, repo || undefined)
                   setNote(n)
                   setConflict(false)
                   setMode('read')

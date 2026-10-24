@@ -31,10 +31,11 @@ const INK = '#1c1c1e'
 const CREAM = '#fff8e5'
 const LEMON = '#ffe566'
 
-export function ShareDialog({ open, onOpenChange, path, note }: {
+export function ShareDialog({ open, onOpenChange, path, repo, note }: {
   open: boolean
   onOpenChange: (v: boolean) => void
   path: string
+  repo?: string
   note: NoteFull | null
 }) {
   const [phase, setPhase] = useState<'loading' | 'none' | 'share'>('loading')
@@ -49,7 +50,7 @@ export function ShareDialog({ open, onOpenChange, path, note }: {
     setPhase('loading')
     setShare(null)
     sharesApi
-      .get(path)
+      .get(path, repo)
       .then((r) => {
         if (!alive) return
         setShare(r.share)
@@ -57,14 +58,14 @@ export function ShareDialog({ open, onOpenChange, path, note }: {
       })
       .catch(() => { if (alive) setPhase('none') })
     return () => { alive = false }
-  }, [open, path])
+  }, [open, path, repo])
 
   const url = share ? `${location.origin}/share/${share.token}` : ''
 
   const create = async () => {
     setBusy(true)
     try {
-      const r = await sharesApi.create(path, mode, days)
+      const r = await sharesApi.create(path, mode, days, repo)
       setShare(r.share)
       setPhase('share')
       undoToast('分享链接已生成')

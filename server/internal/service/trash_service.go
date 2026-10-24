@@ -13,11 +13,21 @@ import (
 )
 
 // TrashService —— 回收站：三实体软删的统一找回视图 + 彻底删除 + 保留期清理。
-// 注：笔记「恢复冲突」在现 schema 下不存在（uk_note_user_path 含软删行 + Upsert 复活语义，
+// 注：笔记「恢复冲突」在现 schema 下不存在（uk_note_repo_path 含软删行 + Upsert 复活语义，
 // 同路径不可能同时有活跃笔记与软删笔记），恢复即成功。
-type TrashService struct{ DB *gorm.DB }
+type TrashService struct {
+	DB            *gorm.DB
+	RetentionDays int // 保留天数（与清理 cron 同源；0=默认 30）
+}
 
-const trashRetentionDays = 30
+const trashRetentionDefault = 30
+
+func (s *TrashService) retention() int {
+	if s.RetentionDays > 0 {
+		return s.RetentionDays
+	}
+	return trashRetentionDefault
+}
 
 // TrashItem 统一条目（三实体映射到同一形态）
 type TrashItem struct {
@@ -35,6 +45,7 @@ type TrashItem struct {
 // SourceLookup 反查删除来源：按删除类审计日志的 target（todo/memo=id，note=path）匹配最近一条。
 // 审计保留 90 天 > 回收站 30 天，时间窗必然覆盖。
 func (s *TrashService) SourceLookup(ctx context.Context, userID int64) map[string]string {
+	retention := s.retention()
 	type logRow struct {
 		Action   string
 		Target   string
@@ -45,7 +56,7 @@ func (s *TrashService) SourceLookup(ctx context.Context, userID int64) map[strin
 		Select("action, target, api_key_id").
 		Where("user_id = ? AND action IN ? AND create_time > ?",
 			userID, []string{"todo.delete", "memo.delete", "note.delete"},
-			time.Now().AddDate(0, 0, -(trashRetentionDays+5))).
+			time.Now().AddDate(0, 0, -(retention+5))).
 		Order("id DESC").Limit(1000).Scan(&rows)
 	if len(rows) == 0 {
 		return map[string]string{}
@@ -90,8 +101,8 @@ func (s *TrashService) SourceLookup(ctx context.Context, userID int64) map[strin
 	return out
 }
 
-func leftDays(deletedAt time.Time) int {
-	d := trashRetentionDays - int(time.Since(deletedAt).Hours()/24)
+func leftDays(deletedAt time.Time, retention int) int {
+	d := retention - int(time.Since(deletedAt).Hours()/24)
 	if d < 0 {
 		return 0
 	}
@@ -101,6 +112,7 @@ func leftDays(deletedAt time.Time) int {
 // List 回收站列表（update_time 倒序 = 最近删除在前）+ 分类型计数。
 func (s *TrashService) List(ctx context.Context, userID int64) ([]TrashItem, map[string]int64, error) {
 	src := s.SourceLookup(ctx, userID)
+	retention := s.retention()
 	items := make([]TrashItem, 0)
 	counts := map[string]int64{"todo": 0, "memo": 0, "note": 0}
 
@@ -117,7 +129,7 @@ func (s *TrashService) List(ctx context.Context, userID int64) ([]TrashItem, map
 		}
 		items = append(items, TrashItem{
 			Type: string(model.TrashTodo), ID: t.ID, Title: t.Title, Subtitle: sub,
-			Tags: t.Tags, DeletedAt: t.UpdateTime, LeftDays: leftDays(t.UpdateTime),
+			Tags: t.Tags, DeletedAt: t.UpdateTime, LeftDays: leftDays(t.UpdateTime, retention),
 			Source: src["todo.delete|"+itoa(t.ID)],
 		})
 		counts["todo"]++
@@ -132,7 +144,7 @@ func (s *TrashService) List(ctx context.Context, userID int64) ([]TrashItem, map
 	for _, m := range memos {
 		items = append(items, TrashItem{
 			Type: string(model.TrashMemo), ID: m.ID, Title: cut(m.Content, 80),
-			Tags: m.Tags, DeletedAt: m.UpdateTime, LeftDays: leftDays(m.UpdateTime),
+			Tags: m.Tags, DeletedAt: m.UpdateTime, LeftDays: leftDays(m.UpdateTime, retention),
 			Source: src["memo.delete|"+itoa(m.ID)],
 		})
 		counts["memo"]++
@@ -162,7 +174,7 @@ func (s *TrashService) List(ctx context.Context, userID int64) ([]TrashItem, map
 	for _, n := range notes {
 		items = append(items, TrashItem{
 			Type: string(model.TrashNote), ID: n.ID, Title: n.Path, Subtitle: n.Title,
-			Tags: n.Tags, RepoName: repoNames[n.RepoID], DeletedAt: n.UpdateTime, LeftDays: leftDays(n.UpdateTime),
+			Tags: n.Tags, RepoName: repoNames[n.RepoID], DeletedAt: n.UpdateTime, LeftDays: leftDays(n.UpdateTime, retention),
 			Source: src["note.delete|"+strings.TrimPrefix(n.Path, "/")],
 		})
 		counts["note"]++
@@ -190,9 +202,27 @@ func (s *TrashService) Restore(ctx context.Context, userID int64, tt model.Trash
 	case model.TrashMemo:
 		return s.restoreWhere(ctx, &model.Memo{}, userID, id, now)
 	case model.TrashNote:
-		return s.restoreWhere(ctx, &model.Note{}, userID, id, now)
+		return s.restoreNote(ctx, userID, id, now)
 	}
 	return &UserError{"type 必须是 todo / memo / note"}
+}
+
+// restoreNote 笔记恢复：源仓库必须仍活跃（否则恢复出来也不可见，属孤儿数据）。
+func (s *TrashService) restoreNote(ctx context.Context, userID, id int64, now time.Time) error {
+	var n model.Note
+	if err := s.DB.WithContext(ctx).
+		Where("id = ? AND user_id = ? AND is_deleted = 1", id, userID).First(&n).Error; err != nil {
+		return ErrTrashNotFound
+	}
+	var repoCnt int64
+	if err := s.DB.WithContext(ctx).Model(&model.Repo{}).
+		Where("id = ? AND user_id = ? AND is_deleted = 0", n.RepoID, userID).Count(&repoCnt).Error; err != nil {
+		return err
+	}
+	if repoCnt == 0 {
+		return &UserError{"原仓库已被删除，无法恢复该笔记；请先恢复仓库或联系管理员"}
+	}
+	return s.restoreWhere(ctx, &model.Note{}, userID, id, now)
 }
 
 func (s *TrashService) restoreWhere(ctx context.Context, m any, userID, id int64, now time.Time) error {
@@ -224,7 +254,13 @@ func (s *TrashService) PurgeItem(ctx context.Context, userID int64, tt model.Tra
 				Where("id = ? AND user_id = ? AND is_deleted = 1", id, userID).First(&n).Error; err != nil {
 				return ErrTrashNotFound
 			}
-			// 正文与主行删除都带 is_deleted=1 条件：与并发 Restore 交错时宁可不删（404），不可硬删已恢复的活跃笔记
+			// 正文、切片、分享与主行删除都带 is_deleted=1 条件：与并发 Restore 交错时宁可不删（404），不可硬删已恢复的活跃笔记
+			if err := tx.Exec(`DELETE FROM tf_note_share WHERE note_id = ? AND user_id = ?`, n.ID, userID).Error; err != nil {
+				return err
+			}
+			if err := tx.Exec(`DELETE FROM tf_note_chunk WHERE note_id = ?`, n.ID).Error; err != nil {
+				return err
+			}
 			if err := tx.Exec(`DELETE FROM tf_note_content WHERE note_id IN
 				(SELECT id FROM tf_note WHERE id = ? AND user_id = ? AND is_deleted = 1)`, n.ID, userID).Error; err != nil {
 				return err
@@ -273,6 +309,14 @@ func (s *TrashService) PurgeAll(ctx context.Context, userID int64) (map[string]i
 		if err := tx.Exec(`SELECT id FROM tf_note WHERE user_id = ? AND is_deleted = 1 FOR UPDATE`, userID).Error; err != nil {
 			return err
 		}
+		if err := tx.Exec(`DELETE FROM tf_note_share WHERE user_id = ? AND note_id IN
+			(SELECT id FROM tf_note WHERE user_id = ? AND is_deleted = 1)`, userID, userID).Error; err != nil {
+			return err
+		}
+		if err := tx.Exec(`DELETE FROM tf_note_chunk WHERE note_id IN
+			(SELECT id FROM tf_note WHERE user_id = ? AND is_deleted = 1)`, userID).Error; err != nil {
+			return err
+		}
 		if err := tx.Exec(`DELETE FROM tf_note_content WHERE note_id IN
 			(SELECT id FROM tf_note WHERE user_id = ? AND is_deleted = 1)`, userID).Error; err != nil {
 			return err
@@ -306,6 +350,14 @@ func (s *TrashService) CleanupExpired(ctx context.Context, days int) (map[string
 	if err := s.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		// 先 FOR UPDATE 锁超期软删行：与并发 Restore/软删更新的竞态窗口归零
 		if err := tx.Exec(`SELECT id FROM tf_note WHERE is_deleted = 1 AND update_time < ? FOR UPDATE`, cutoff).Error; err != nil {
+			return err
+		}
+		if err := tx.Exec(`DELETE FROM tf_note_share WHERE note_id IN
+			(SELECT id FROM tf_note WHERE is_deleted = 1 AND update_time < ?)`, cutoff).Error; err != nil {
+			return err
+		}
+		if err := tx.Exec(`DELETE FROM tf_note_chunk WHERE note_id IN
+			(SELECT id FROM tf_note WHERE is_deleted = 1 AND update_time < ?)`, cutoff).Error; err != nil {
 			return err
 		}
 		if err := tx.Exec(`DELETE FROM tf_note_content WHERE note_id IN

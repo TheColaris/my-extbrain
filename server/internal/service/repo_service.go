@@ -74,9 +74,24 @@ func (s *RepoService) DefaultID(ctx context.Context, userID int64) (int64, error
 	}
 	fresh := model.Repo{UserID: userID, Name: "默认仓库", Description: "开启仓库功能时自动创建；存量笔记都在这里", IsDefault: 1}
 	if err := s.DB.WithContext(ctx).Create(&fresh).Error; err != nil {
+		// 并发懒建撞 uk_repo_user_default：回读另一请求建好的默认仓库
+		var again model.Repo
+		if err2 := s.DB.WithContext(ctx).
+			Where("user_id = ? AND is_default = 1 AND is_deleted = 0", userID).First(&again).Error; err2 == nil {
+			return again.ID, nil
+		}
 		return 0, err
 	}
 	return fresh.ID, nil
+}
+
+// Default 默认仓库整行（返回面注记用；缺则懒建）。
+func (s *RepoService) Default(ctx context.Context, userID int64) (*model.Repo, error) {
+	id, err := s.DefaultID(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+	return s.resolve(ctx, userID, id)
 }
 
 // resolve 校验归属并取活跃仓库。
@@ -211,13 +226,14 @@ func (s *RepoService) Delete(ctx context.Context, userID, id int64) error {
 	if r.IsDefault == 1 {
 		return &UserError{"「" + r.Name + "」是默认仓库，不可删除"}
 	}
+	// 回收站里的笔记也算占用：只允许删除完全空的仓库，否则恢复出来的笔记会落进已删仓库变成孤儿
 	var cnt int64
 	if err := s.DB.WithContext(ctx).Model(&model.Note{}).
-		Where("user_id = ? AND repo_id = ? AND is_deleted = 0", userID, r.ID).Count(&cnt).Error; err != nil {
+		Where("user_id = ? AND repo_id = ?", userID, r.ID).Count(&cnt).Error; err != nil {
 		return err
 	}
 	if cnt > 0 {
-		return &UserError{"「" + r.Name + "」还有 " + itoa(cnt) + " 篇笔记：先移走或清空，再删除仓库"}
+		return &UserError{"「" + r.Name + "」还有 " + itoa(cnt) + " 篇笔记（含回收站）：先移走或清空，再删除仓库"}
 	}
 	return s.DB.WithContext(ctx).Model(&model.Repo{}).
 		Where("id = ? AND is_deleted = 0", r.ID).Update("is_deleted", 1).Error

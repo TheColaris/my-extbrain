@@ -76,15 +76,21 @@ func (s *PushLogService) List(ctx context.Context, userID int64, f PushLogFilter
 		f.Limit = 50
 	}
 	since := time.Now().AddDate(0, 0, -f.Days)
-	q := s.DB.WithContext(ctx).Model(&model.PushLog{}).Where("user_id = ? AND create_time >= ?", userID, since)
-	if f.Channel != "" {
-		q = q.Where("channel_type = ?", f.Channel)
+	base := func() *gorm.DB {
+		q := s.DB.WithContext(ctx).Model(&model.PushLog{}).Where("user_id = ? AND create_time >= ?", userID, since)
+		if f.Channel != "" {
+			q = q.Where("channel_type = ?", f.Channel)
+		}
+		if f.Type != "" {
+			q = q.Where("event_type = ?", f.Type)
+		}
+		return q
 	}
-	if f.Type != "" {
-		q = q.Where("event_type = ?", f.Type)
-	}
+	q := base()
 	if f.Result == "fail" {
-		q = q.Where("status = ?", string(model.PushStatusFail))
+		// 失败的筛法是「事件级」：保留该事件的全部渠道行（否则成功的渠道被过滤掉，看不到同事件上下文）
+		sub := base().Where("status = ?", string(model.PushStatusFail)).Select("event_key")
+		q = q.Where("event_key IN (?)", sub)
 	}
 	var rows []model.PushLog
 	if err := q.Order("create_time DESC").Limit(f.Limit * 8).Find(&rows).Error; err != nil {

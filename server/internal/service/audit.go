@@ -94,6 +94,17 @@ func (a *Audit) loop() {
 	}
 }
 
+// RecordAuthFailure 认证失败审计（按 IP 每分钟最多 10 条采样；/mcp 等无 v1 中间件的入口共用）。
+func (a *Audit) RecordAuthFailure(e model.APILog) {
+	if a == nil {
+		return
+	}
+	if !a.failSample.Allow("ip:" + e.ClientIP) {
+		return
+	}
+	a.Record(e)
+}
+
 // Middleware Gin 审计中间件：须挂在认证中间件之后（读取 uid/key 信息）。
 // action = 路由模板资源段 + method 动词映射，如 PATCH /api/v1/todos/:id → todo.update。
 func (a *Audit) Middleware() gin.HandlerFunc {

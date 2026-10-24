@@ -17,15 +17,17 @@ type AccountService struct {
 	Auth *AuthService // 复用通道识别与占用检查
 }
 
-func (s *AccountService) Bind(ctx context.Context, userID int64, ch model.BindChannel, value, currentPwd string) (*model.User, error) {
-	if ch != model.BindChannelPhone && ch != model.BindChannelEmail {
-		return nil, &UserError{"type 必须是 phone 或 email"}
+// Bind 绑定/换绑通道：当前仅支持邮箱，且必须提供邮箱验证码（证明对目标邮箱的控制权）。
+// 手机号通道未接入短信验证，禁止绑定（避免占用他人号码/产生未验证登录标识）。
+func (s *AccountService) Bind(ctx context.Context, userID int64, ch model.BindChannel, value, currentPwd, emailCode string) (*model.User, error) {
+	if ch == model.BindChannelPhone {
+		return nil, &UserError{"暂不支持绑定手机号（未接入短信验证）；请使用邮箱"}
+	}
+	if ch != model.BindChannelEmail {
+		return nil, &UserError{"type 必须是 email"}
 	}
 	ident := strings.TrimSpace(strings.ToLower(value))
-	if ch == model.BindChannelPhone && !phoneRe.MatchString(ident) {
-		return nil, &UserError{"手机号格式不合法"}
-	}
-	if ch == model.BindChannelEmail && !emailRe.MatchString(ident) {
+	if !emailRe.MatchString(ident) {
 		return nil, &UserError{"邮箱格式不合法"}
 	}
 	var u model.User
@@ -42,12 +44,14 @@ func (s *AccountService) Bind(ctx context.Context, userID int64, ch model.BindCh
 	if cnt > 0 {
 		return nil, &UserError{"该账号已被其他用户绑定"}
 	}
-	updates := map[string]any{"token_version": gorm.Expr("token_version + 1")} // 换绑=安全操作：踢其他设备
-	if ch == model.BindChannelPhone {
-		updates["phone"] = ident
-	} else {
-		updates["email"] = ident
+	if s.Auth == nil {
+		return nil, errors.New("auth service not wired")
 	}
+	if err := s.Auth.consumeEmailCode(ctx, ident, emailCode); err != nil {
+		return nil, err
+	}
+	updates := map[string]any{"token_version": gorm.Expr("token_version + 1")} // 换绑=安全操作：踢其他设备
+	updates["email"] = ident
 	if err := s.DB.WithContext(ctx).Model(&u).Updates(updates).Error; err != nil {
 		return nil, err
 	}
@@ -58,6 +62,9 @@ func (s *AccountService) Bind(ctx context.Context, userID int64, ch model.BindCh
 func (s *AccountService) ChangePassword(ctx context.Context, userID int64, oldPwd, newPwd string) (*model.User, error) {
 	if len(newPwd) < pwdMinLen {
 		return nil, &UserError{"新密码至少 8 位"}
+	}
+	if len(newPwd) > pwdMaxLen {
+		return nil, &UserError{"新密码过长（≤72 字节）"}
 	}
 	var u model.User
 	if err := s.DB.WithContext(ctx).Where("id = ? AND is_deleted = 0", userID).First(&u).Error; err != nil {

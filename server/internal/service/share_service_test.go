@@ -70,7 +70,7 @@ func TestNoteShareFlow(t *testing.T) {
 	s.Notes.Restore(ctx, uid, rid, "分享/测试笔记.md", nil)
 
 	// 7. owner 查询（按路径）
-	got, err := s.GetByPath(ctx, uid, rid, "分享/测试笔记.md")
+	got, err := s.GetByPath(ctx, uid, rid, "分享/测试笔记.md", nil)
 	if err != nil || got == nil || got.Token != tok1 {
 		t.Fatalf("owner 查询: %v %+v", err, got)
 	}
@@ -84,7 +84,7 @@ func TestNoteShareFlow(t *testing.T) {
 	if _, err := s.PublicGet(ctx, tok1); err != ErrShareNotFound {
 		t.Fatalf("撤销后公开读取应失效: %v", err)
 	}
-	got, _ = s.GetByPath(ctx, uid, rid, "分享/测试笔记.md")
+	got, _ = s.GetByPath(ctx, uid, rid, "分享/测试笔记.md", nil)
 	if got != nil {
 		t.Fatalf("撤销后 owner 查询应 nil: %+v", got)
 	}
@@ -113,7 +113,7 @@ func TestNoteShareFlow(t *testing.T) {
 	if err := s.Revoke(ctx, uid+1, sh3.Token); err != ErrShareNotFound {
 		t.Fatalf("跨用户撤销应拒绝: %v", err)
 	}
-	if got, _ := s.GetByPath(ctx, uid+1, testRepoID(t, db, uid+1), "分享/测试笔记.md"); got != nil {
+	if got, _ := s.GetByPath(ctx, uid+1, testRepoID(t, db, uid+1), "分享/测试笔记.md", nil); got != nil {
 		t.Fatalf("跨用户查询应 nil: %+v", got)
 	}
 

@@ -11,6 +11,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"extbrain-server/internal/e2e"
 	"extbrain-server/internal/model"
@@ -151,6 +152,8 @@ func TestNotifyRealSendBranch(t *testing.T) {
 	defer srv.Close()
 
 	n := NewNotifyService(db, nil)
+	n.AllowPrivate = true
+	n.Client = &http.Client{Timeout: 5 * time.Second}
 	c := &model.NotifyChannel{ChannelType: model.ChannelTypeDingTalk, WebhookURL: srv.URL}
 	if err := n.Send(c, "真实", "外发"); err != nil {
 		t.Fatalf("真实分支 Send 应回成功: %v", err)
@@ -223,17 +226,17 @@ func TestWebPushRealBranch(t *testing.T) {
 	if err != nil {
 		t.Fatalf("生成 VAPID 失败: %v", err)
 	}
-	p := &PushService{DB: db, Cache: &CacheService{DB: db}, VapidPublic: pub, VapidPriv: priv}
+	p := &PushService{DB: db, Cache: &CacheService{DB: db}, VapidPublic: pub, VapidPriv: priv, AllowPrivate: true, Client: &http.Client{Timeout: 5 * time.Second}}
 	// 200：发送成功（订阅 keys 需为合法 P-256 公钥 + 16 字节 auth，否则加密阶段即失败）
 	status = http.StatusOK
 	sub := model.PushSubscription{UserID: 1, Endpoint: srv.URL, P256DH: fakeP256DH(), Auth: fakeAuth()}
-	if err := p.webPush(&sub, "t", "b"); err != nil {
+	if err := p.webPush(t.Context(), &sub, "t", "b"); err != nil {
 		t.Fatalf("200 应成功: %v", err)
 	}
 	// 410：订阅失效 → 清理并报错
 	status = http.StatusGone
 	db.Create(&sub)
-	if err := p.webPush(&sub, "t", "b"); err == nil {
+	if err := p.webPush(t.Context(), &sub, "t", "b"); err == nil {
 		t.Fatal("410 应报订阅失效")
 	}
 	var alive model.PushSubscription

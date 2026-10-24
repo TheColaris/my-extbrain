@@ -82,7 +82,11 @@ func (s *MemoService) Update(ctx context.Context, userID, id int64, in MemoUpdat
 		updates["tags"] = pq.StringArray(normalizeTags(in.Tags))
 	}
 	if in.IsPinned != nil {
-		updates["is_pinned"] = *in.IsPinned
+		v := int16(0)
+		if *in.IsPinned != 0 {
+			v = 1
+		}
+		updates["is_pinned"] = v
 	}
 	if err := s.DB.WithContext(ctx).Model(&m).Updates(updates).Error; err != nil {
 		return nil, err

@@ -37,6 +37,7 @@ type TodoUpdate struct {
 var (
 	ErrTodoNotFound = errors.New("todo not found")
 	titleMax        = 255
+	remarkMax       = 1000
 )
 
 func (s *TodoService) Create(ctx context.Context, userID int64, in TodoCreate) (*model.Todo, error) {
@@ -46,6 +47,9 @@ func (s *TodoService) Create(ctx context.Context, userID int64, in TodoCreate) (
 	}
 	if len([]rune(t)) > titleMax {
 		return nil, &UserError{"标题过长（≤255 字）"}
+	}
+	if len([]rune(in.Remark)) > remarkMax {
+		return nil, &UserError{"备注过长（≤1000 字）"}
 	}
 	if in.Source == "" {
 		in.Source = model.TodoSourceWeb
@@ -170,9 +174,15 @@ func (s *TodoService) Update(ctx context.Context, userID, id int64, in TodoUpdat
 		if t == "" {
 			return nil, &UserError{"标题不能为空"}
 		}
+		if len([]rune(t)) > titleMax {
+			return nil, &UserError{"标题过长（≤255 字）"}
+		}
 		updates["title"] = t
 	}
 	if in.Remark != nil {
+		if len([]rune(*in.Remark)) > remarkMax {
+			return nil, &UserError{"备注过长（≤1000 字）"}
+		}
 		updates["remark"] = *in.Remark
 	}
 	if in.Status != nil {

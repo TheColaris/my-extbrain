@@ -73,8 +73,15 @@ func TestAccountProfileFlow(t *testing.T) {
 	if _, err := acc.ChangePassword(ctx, u.ID, "password123", "anotherpass789"); err == nil {
 		t.Fatal("旧密码应已失效")
 	}
-	// 换绑：token_version 再 +1
-	u3, err := acc.Bind(ctx, u.ID, model.BindChannelEmail, "profile@test.dev", "newpassword456")
+	// 换绑：必须邮箱验证码；缺码拒绝；带码 token_version 再 +1
+	if _, err := acc.Bind(ctx, u.ID, model.BindChannelEmail, "profile@test.dev", "newpassword456", ""); err == nil {
+		t.Fatal("换绑缺验证码应拒绝")
+	}
+	if _, err := acc.Bind(ctx, u.ID, model.BindChannelPhone, "13900000000", "newpassword456", ""); err == nil {
+		t.Fatal("手机号绑定应拒绝（未接入短信验证）")
+	}
+	_ = cs.Set(ctx, emailCodeKey("profile@test.dev"), "654321", emailCodeTTL)
+	u3, err := acc.Bind(ctx, u.ID, model.BindChannelEmail, "profile@test.dev", "newpassword456", "654321")
 	if err != nil || u3.TokenVersion != 2 || u3.Email == nil || *u3.Email != "profile@test.dev" {
 		t.Fatalf("换绑应 +1 版本: %v %+v", err, u3)
 	}

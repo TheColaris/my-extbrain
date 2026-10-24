@@ -220,9 +220,9 @@ export interface NotifyChannel {
 export const accountApi = {
   me: () => api<MeInfo>('/auth/me'),
   /** 绑定/换绑邮箱（安全操作：服务端会 +1 会话版本并顺发新 token → 替换本地） */
-  bind: (type: 'email', value: string, password: string) =>
+  bind: (type: 'email', value: string, password: string, emailCode: string) =>
     api<MeInfo & { token: string }>('/auth/bind', {
-      method: 'POST', body: JSON.stringify({ type, value, password }),
+      method: 'POST', body: JSON.stringify({ type, value, password, email_code: emailCode }),
     }),
   /** 改密（同上顺发新 token） */
   changePassword: (oldPwd: string, newPwd: string) =>
@@ -276,6 +276,7 @@ export interface NoteMeta {
   title: string
   tags: string[]
   update_time: string
+  repo_name?: string // 返回面注记（移动/复制后的真实所属仓库）
 }
 
 export interface NoteFull extends NoteMeta {
@@ -303,16 +304,16 @@ export const reposApi = {
 }
 
 export const notesApi = {
-  list: (prefix?: string, repo?: string) => {
-    const q = qs({ prefix, repo })
-    return api<{ notes: NoteMeta[]; dirs: string[] }>(`/notes${q}`)
+  list: (prefix?: string, repo?: string, limit?: number, offset?: number) => {
+    const q = qs({ prefix, repo, limit: limit ? String(limit) : '', offset: offset ? String(offset) : '' })
+    return api<{ notes: NoteMeta[]; dirs: string[]; truncated?: boolean }>(`/notes${q}`)
   },
   get: (path: string, formatMd = false, repo?: string) => {
     const q = qs({ format: formatMd ? 'md' : '', repo })
     return api<NoteFull>(`/notes/${encodePath(path)}${q}`)
   },
-  getMd: async (path: string): Promise<string> => {
-    const res = await fetch(`/api/v1/notes/${encodePath(path)}?format=md`, {
+  getMd: async (path: string, repo?: string): Promise<string> => {
+    const res = await fetch(`/api/v1/notes/${encodePath(path)}${qs({ format: 'md', repo })}`, {
       headers: { Authorization: `Bearer ${getToken()}` },
     })
     if (res.status === 401) authExpiredRedirect() // 与 api() 主通道同口径
@@ -332,7 +333,9 @@ export const notesApi = {
   restore: (path: string, repo?: string) =>
     api<{ note: NoteMeta }>('/notes/restore', { method: 'POST', body: JSON.stringify({ path, repo }) }),
   search: (q: string) =>
-    api<{ hits: { repo_name?: string; path: string; title: string; snippet: string }[] }>(`/search?q=${encodeURIComponent(q)}`),
+    api<{ hits: { repo_name?: string; path: string; title: string; snippet: string }[] }>(
+      `/search?scope=note&q=${encodeURIComponent(q)}`,
+    ),
 }
 
 /** 查询串组装（空值跳过；问号仅在非空时出现） */
@@ -389,12 +392,13 @@ export interface ShareView {
 
 export const sharesApi = {
   /** 查该笔记的活跃分享（无则 share=null） */
-  get: (path: string) => api<{ share: ShareItem | null }>(`/shares?path=${encodeURIComponent(path)}`),
+  get: (path: string, repo?: string) =>
+    api<{ share: ShareItem | null }>(`/shares${qs({ path, repo })}`),
   /** 创建/更新分享（保留 token；expire_days 0=永久） */
-  create: (path: string, mode: ShareItem['mode'], expireDays: number) =>
+  create: (path: string, mode: ShareItem['mode'], expireDays: number, repo?: string) =>
     api<{ share: ShareItem }>('/shares', {
       method: 'POST',
-      body: JSON.stringify({ path, mode, expire_days: expireDays }),
+      body: JSON.stringify({ path, repo, mode, expire_days: expireDays }),
     }),
   /** 停止分享（再分享会生成新 token） */
   revoke: (token: string) => api(`/shares/${encodeURIComponent(token)}`, { method: 'DELETE' }),

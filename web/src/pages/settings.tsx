@@ -8,7 +8,7 @@ import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { ApiError, accountApi, getToken, notifyApi, pushApi, setToken, type MeInfo, type NotifyChannel } from '@/lib/api'
+import { ApiError, accountApi, authApi, getToken, notifyApi, pushApi, setToken, type MeInfo, type NotifyChannel } from '@/lib/api'
 import { urlBase64ToUint8Array } from '@/lib/push'
 import { AVATAR_BG_OPTIONS, CHANNEL_TYPE } from '@/lib/enums'
 import { UserAvatar, syncUserCache } from '@/components/user-avatar'
@@ -239,8 +239,30 @@ function BindDialog({ kind, onClose, onDone, onErr }: {
   const [pwd, setPwd] = useState('')
   const [newPwd, setNewPwd] = useState('')
   const [confirmPwd, setConfirmPwd] = useState('')
+  const [code, setCode] = useState('')
+  const [sending, setSending] = useState(false)
+  const [cooldown, setCooldown] = useState(0)
   const [busy, setBusy] = useState(false)
+  useEffect(() => {
+    if (cooldown <= 0) return
+    const t = setTimeout(() => setCooldown((c) => c - 1), 1000)
+    return () => clearTimeout(t)
+  }, [cooldown])
   if (!kind) return null
+
+  async function sendCode() {
+    const email = value.trim()
+    if (!email) { onErr('请先填写邮箱'); return }
+    setSending(true); onErr('')
+    try {
+      await authApi.sendEmailCode(email)
+      setCooldown(60)
+    } catch (e) {
+      onErr(e instanceof ApiError ? e.message : '验证码发送失败')
+    } finally {
+      setSending(false)
+    }
+  }
 
   async function submit() {
     setBusy(true); onErr('')
@@ -251,7 +273,8 @@ function BindDialog({ kind, onClose, onDone, onErr }: {
         setToken(r.token) // 服务端已 +1 会话版本（其他设备全失效）→ 当前设备换用新 token
         onDone('密码已修改')
       } else {
-        const r = await accountApi.bind('email', value.trim(), pwd)
+        if (!code.trim()) { onErr('请填写邮箱验证码'); return }
+        const r = await accountApi.bind('email', value.trim(), pwd, code.trim())
         setToken(r.token)
         onDone('邮箱已更新')
       }
@@ -269,10 +292,21 @@ function BindDialog({ kind, onClose, onDone, onErr }: {
         <DialogHeader><DialogTitle>{title}</DialogTitle></DialogHeader>
         <div className="space-y-4">
           {kind !== 'pwd' && (
-            <div className="space-y-2">
-              <Label>邮箱</Label>
-              <Input value={value} onChange={(e) => setValue(e.target.value)} placeholder="you@example.com" />
-            </div>
+            <>
+              <div className="space-y-2">
+                <Label>邮箱</Label>
+                <Input value={value} onChange={(e) => setValue(e.target.value)} placeholder="you@example.com" />
+              </div>
+              <div className="space-y-2">
+                <Label>邮箱验证码</Label>
+                <div className="flex gap-2">
+                  <Input value={code} onChange={(e) => setCode(e.target.value)} placeholder="6 位验证码" inputMode="numeric" />
+                  <Button type="button" variant="outline" disabled={sending || cooldown > 0} onClick={sendCode} className="shrink-0">
+                    {cooldown > 0 ? `${cooldown}s` : sending ? '发送中…' : '发送验证码'}
+                  </Button>
+                </div>
+              </div>
+            </>
           )}
           {kind === 'pwd' ? (
             <>

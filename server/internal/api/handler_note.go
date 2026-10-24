@@ -60,7 +60,8 @@ func failNoteDenied(c *gin.Context) {
 	fail(c, errForbidden("该目录对你的 Key 不可见（目录权限限制）。不要反复尝试；如需访问，请让用户在网页面板调整目录权限"))
 }
 
-// ListNotes GET /api/v1/notes?prefix=ai/&repo=仓库名（缺省=默认仓库；path 均为仓库内相对路径）
+// ListNotes GET /api/v1/notes?prefix=ai/&repo=仓库名&limit=&offset=
+// （缺省=默认仓库；path 均为仓库内相对路径；truncated=true 表示还有下一页）
 func (h *NoteHandler) List(c *gin.Context) {
 	repo, ok := h.resolveRepo(c)
 	if !ok {
@@ -70,7 +71,9 @@ func (h *NoteHandler) List(c *gin.Context) {
 	if !ok {
 		return
 	}
-	notes, dirs, err := h.Notes.List(c.Request.Context(), uid(c), repo.ID, c.Query("prefix"), view)
+	limit, _ := atoiDefault(c.Query("limit"), 0)
+	offset, _ := atoiDefault(c.Query("offset"), 0)
+	notes, dirs, truncated, err := h.Notes.ListPage(c.Request.Context(), uid(c), repo.ID, c.Query("prefix"), view, limit, offset)
 	if err != nil {
 		respondServiceErr(c, err)
 		return
@@ -78,7 +81,7 @@ func (h *NoteHandler) List(c *gin.Context) {
 	for i := range notes {
 		notes[i].RepoName = repo.Name
 	}
-	c.JSON(http.StatusOK, gin.H{"notes": notes, "dirs": dirs})
+	c.JSON(http.StatusOK, gin.H{"notes": notes, "dirs": dirs, "truncated": truncated})
 }
 
 // GetNote GET /api/v1/notes/*path?format=md&repo=（format=md 或 Accept: text/markdown → 纯 MD 原文）
@@ -252,16 +255,16 @@ func (h *NoteHandler) Restore(c *gin.Context) {
 }
 
 // repoByParam 按显式仓库名解析（body/query 通用；空=默认仓库）。
-// 缺省路径不查库名（默认仓名取约定文案做返回面注记；id 由 DefaultID 懒建保证）。
+// 缺省走 RepoService.Default 取真实行（默认仓库可改名，返回面注记不能写死「默认仓库」）。
 func (h *NoteHandler) repoByParam(c *gin.Context, name string) (*model.Repo, bool) {
 	name = strings.TrimSpace(name)
 	if name == "" {
-		id, err := h.Repos.DefaultID(c.Request.Context(), uid(c))
+		r, err := h.Repos.Default(c.Request.Context(), uid(c))
 		if err != nil {
 			fail(c, errInternal("默认仓库读取失败，请重试"))
 			return nil, false
 		}
-		return &model.Repo{ID: id, Name: "默认仓库"}, true
+		return r, true
 	}
 	r, err := h.Repos.ResolveByName(c.Request.Context(), uid(c), name)
 	if err != nil {
@@ -275,9 +278,12 @@ func (h *NoteHandler) repoByParam(c *gin.Context, name string) (*model.Repo, boo
 	return r, true
 }
 
-// Search GET /api/v1/search?q=&limit=&scope=&mode=（跨仓库全量；命中带 repo_id/repo_name）
-// scope 缺省=笔记域（hits 字段，CLI 兼容）；scope=all → 全域 {todos, memos, notes}（Web 全局搜索）。
-// mode：缺省=自动（provider 可用则混合）；keyword|vector|hybrid（向量仅覆盖知识库域）。
+// Search GET /api/v1/search?q=&limit=&scope=&mode=
+// scope 语义（与前端/MCP/CLI 契约一致）：
+//   - 缺省：Web JWT / scope=all 的 Key → 三域 {todos,memos,notes}；notes 专属 Key → 笔记域 {hits}
+//   - scope=note：笔记域 {hits}（库页搜索显式使用）
+//   - scope=all：三域 {todos,memos,notes}；notes 专属 Key 调用 → 403（不得借道越权）
+//   - 其他值：400
 func (h *NoteHandler) Search(c *gin.Context) {
 	limit, _ := atoiDefault(c.Query("limit"), 20)
 	q := c.Query("q")
@@ -286,18 +292,35 @@ func (h *NoteHandler) Search(c *gin.Context) {
 		fail(c, errBadRequest("invalid_mode", "mode 是 keyword|vector|hybrid（缺省=自动）"))
 		return
 	}
-	view, ok := permView(c, h.Perm)
-	if !ok {
-		return
-	}
-	// API Key 非 all scope 不得借道 scope=all 越权读待办/便签（Web JWT 无 key_scope 恒放行）
-	if c.Query("scope") == "all" && !keyScopeAllowsAll(c) {
+	scope := c.Query("scope")
+	allAllowed := keyScopeAllowsAll(c)
+	switch scope {
+	case "", "note":
+		if scope == "" && allAllowed {
+			break // 缺省且有权跨域：走下方全域分支（CLI/全局搜索兼容）
+		}
+		view, ok := permView(c, h.Perm)
+		if !ok {
+			return
+		}
 		hits, err := h.Notes.Search(c.Request.Context(), uid(c), q, limit, mode, view)
 		if err != nil {
 			respondServiceErr(c, err)
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"hits": hits})
+		return
+	case "all":
+		if !allAllowed {
+			fail(c, errForbidden("该 Key 只能检索知识库；跨域搜索需要 scope=all 的 Key"))
+			return
+		}
+	default:
+		fail(c, errBadRequest("invalid_scope", "scope 是 note|all（缺省=自动）"))
+		return
+	}
+	view, ok := permView(c, h.Perm)
+	if !ok {
 		return
 	}
 	todos, memos, notes, err := h.SearchAll(c.Request.Context(), uid(c), q, limit, mode, view)

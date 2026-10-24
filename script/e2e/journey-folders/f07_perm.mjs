@@ -45,8 +45,8 @@ export const steps = [
       const dirs = d.dirs || []
       S.assert(!dirs.includes('finance') && !dirs.includes('根级公开.md'), '受限目录/文件不应出现在列表') } },
   // 搜索不泄露：P2 搜 finance 内容 → 0 命中；P1 搜 finance → 0（finance 全封闭）
-  { t: 'http', name: 'p2SearchNoLeak', auth: 'P2', path: '/api/v1/search?q=keywordFin', assert: (d) => S.assert(!(d.notes || []).some((h) => (h.path || '').includes('finance')), 'finance 内容不得出现在 P2 搜索结果') },
-  { t: 'http', name: 'p1SearchNoLeak', auth: 'P1', path: '/api/v1/search?q=keywordFin', assert: (d) => S.assert(!(d.notes || []).some((h) => (h.path || '').includes('finance')), 'finance 内容不得出现在 P1 搜索结果') },
+  { t: 'http', name: 'p2SearchNoLeak', auth: 'P2', path: '/api/v1/search?q=keywordFin', assert: (d) => S.assert(!(d.hits || d.notes || []).some((h) => (h.path || '').includes('finance')), 'finance 内容不得出现在 P2 搜索结果') },
+  { t: 'http', name: 'p1SearchNoLeak', auth: 'P1', path: '/api/v1/search?q=keywordFin', assert: (d) => S.assert(!(d.hits || d.notes || []).some((h) => (h.path || '').includes('finance')), 'finance 内容不得出现在 P1 搜索结果') },
   // 跨仓库隔离：默认仓库的规则不影响其他仓库——P3 先写旅程仓壹（无规则=开放）再读回
   { t: 'http', name: 'isolatedWrite', method: 'PUT', auth: 'P3',
     path: (S) => '/api/v1/notes/' + enc('隔离验证.md') + '?repo=' + enc('旅程仓壹'), body: { content: 'P3 在无规则仓库写入' }, expect: 200 },

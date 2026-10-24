@@ -59,7 +59,7 @@ func mcpAuthFail(d Deps, c *gin.Context) {
 	if d.Audit == nil {
 		return
 	}
-	d.Audit.Record(model.APILog{
+	d.Audit.RecordAuthFailure(model.APILog{
 		Action:     service.ActionAuthFailed,
 		Target:     "/mcp",
 		StatusCode: http.StatusUnauthorized,

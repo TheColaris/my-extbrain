@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 
+	"extbrain-server/internal/model"
+
 	"gorm.io/gorm"
 )
 
@@ -117,12 +119,25 @@ func TestRepoServiceFlow(t *testing.T) {
 	} else if ue, ok := err.(*UserError); !ok || !strings.Contains(ue.Msg, "篇笔记") {
 		t.Fatalf("非空禁删文案异常: %v", err)
 	}
-	// 清空后可删
+	// 清空（软删）后仍不可删——回收站笔记也算占用（否则恢复即孤儿）
 	if err := notes.Delete(ctx, uid, r1b.ID, "需求/仓库化.md", nil); err != nil {
 		t.Fatal(err)
 	}
+	if err := s.Delete(ctx, uid, r1b.ID); err == nil {
+		t.Fatal("仅剩回收站笔记的仓库也应禁删")
+	} else if ue, ok := err.(*UserError); !ok || !strings.Contains(ue.Msg, "含回收站") {
+		t.Fatalf("含回收站禁删文案异常: %v", err)
+	}
+	// 彻底清空回收站后可删
+	var trashNoteID int64
+	if err := db.Table("tf_note").Select("id").Where("user_id = ? AND repo_id = ?", uid, r1b.ID).Scan(&trashNoteID).Error; err != nil || trashNoteID == 0 {
+		t.Fatalf("取回收站笔记失败: %v id=%d", err, trashNoteID)
+	}
+	if err := (&TrashService{DB: db}).PurgeItem(ctx, uid, model.TrashNote, trashNoteID); err != nil {
+		t.Fatalf("彻底删除失败: %v", err)
+	}
 	if err := s.Delete(ctx, uid, r1b.ID); err != nil {
-		t.Fatalf("清空后应可删: %v", err)
+		t.Fatalf("彻底清空后应可删: %v", err)
 	}
 
 	// 列表 + 笔记数

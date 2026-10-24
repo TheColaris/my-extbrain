@@ -275,8 +275,7 @@ func authCmd(args []string) {
 		if err := os.WriteFile(configPath(), b, 0o600); err != nil {
 			die(err)
 		}
-		var probe struct{}
-		if err := api("GET", "/todos?limit=1", nil, &probe); err != nil {
+		if err := probe(); err != nil {
 			fmt.Println("已写入配置，但验证失败:", err)
 			return
 		}
@@ -329,8 +328,7 @@ func deviceLogin(server string) {
 			if err := os.WriteFile(configPath(), b, 0o600); err != nil {
 				die(err)
 			}
-			var probe struct{}
-			if err := api("GET", "/todos?limit=1", nil, &probe); err != nil {
+			if err := probe(); err != nil {
 				fmt.Println("已写入配置，但验证失败:", err)
 				return
 			}
@@ -445,14 +443,28 @@ func mark(status string) string {
 	return " "
 }
 
+// probe 探活：notes 域 / todo 域任一可用即视为配置有效（覆盖 notes / todo / all 三种 Key scope）。
+func probe() error {
+	var out struct{}
+	if err := api("GET", "/notes?limit=1", nil, &out); err == nil {
+		return nil
+	}
+	return api("GET", "/todos?limit=1", nil, &out)
+}
+
 func parseDue(s string) string {
-	for _, layout := range []string{"2006-01-02 15:04", "2006-01-02T15:04", time.RFC3339} {
-		if t, err := time.Parse(layout, s); err == nil {
+	// 无时区输入按本机时区解释（服务器按 RFC3339 落库；用 UTC 解析会把 18:00 变成次日 02:00）
+	for _, layout := range []string{"2006-01-02 15:04", "2006-01-02T15:04"} {
+		if t, err := time.ParseInLocation(layout, s, time.Local); err == nil {
 			return t.Format(time.RFC3339)
 		}
 	}
-	if t, err := time.Parse("2006-01-02", s); err == nil {
-		return t.Format("2006-01-02T15:00:00Z07:00")
+	if t, err := time.Parse(time.RFC3339, s); err == nil {
+		return t.Format(time.RFC3339)
+	}
+	if t, err := time.ParseInLocation("2006-01-02", s, time.Local); err == nil {
+		// 「当天截止」= 当天 23:59:59（不会一早被判逾期）
+		return time.Date(t.Year(), t.Month(), t.Day(), 23, 59, 59, 0, time.Local).Format(time.RFC3339)
 	}
 	die(fmt.Errorf("时间格式不识别: %s（支持 2006-01-02 / 2006-01-02 15:04 / RFC3339）", s))
 	return ""
@@ -588,17 +600,14 @@ func noteCmd(args []string) {
 		if prefix == "" && f.NArg() > 0 {
 			prefix = f.Arg(0)
 		}
-		q := repoQ(repo)
+		q := addQ(repoQ(repo), "limit=1000")
 		if prefix != "" {
-			sep := "&"
-			if q == "" {
-				sep = "?"
-			}
-			q += sep + "prefix=" + url.QueryEscape(prefix)
+			q = addQ(q, "prefix="+url.QueryEscape(prefix))
 		}
 		var r struct {
-			Notes []noteMeta `json:"notes"`
-			Dirs  []string   `json:"dirs"`
+			Notes     []noteMeta `json:"notes"`
+			Dirs      []string   `json:"dirs"`
+			Truncated bool       `json:"truncated"`
 		}
 		if err := api("GET", "/notes"+q, nil, &r); err != nil {
 			die(err)
@@ -614,6 +623,9 @@ func noteCmd(args []string) {
 			fmt.Println("  ", n.Path)
 		}
 		fmt.Printf("(%d 篇 %d 目录)\n", len(r.Notes), len(r.Dirs))
+		if r.Truncated {
+			fmt.Println("…结果已截断（>1000 篇），可用 prefix 缩小范围")
+		}
 	case "cat":
 		var repo string
 		f.StringVar(&repo, "repo", "", "仓库名（缺省=默认仓库）")
@@ -638,20 +650,26 @@ func noteCmd(args []string) {
 		}
 		q := repoQ(repo)
 		if prefix != "" {
-			sep := "&"
-			if q == "" {
-				sep = "?"
+			q = addQ(q, "prefix="+url.QueryEscape(prefix))
+		}
+		var metas []noteMeta
+		for offset := 0; ; {
+			var page struct {
+				Notes     []noteMeta `json:"notes"`
+				Truncated bool       `json:"truncated"`
 			}
-			q += sep + "prefix=" + url.QueryEscape(prefix)
-		}
-		var r struct {
-			Notes []noteMeta `json:"notes"`
-		}
-		if err := api("GET", "/notes"+q, nil, &r); err != nil {
-			die(err)
+			pq := addQ(addQ(q, "limit=1000"), fmt.Sprintf("offset=%d", offset))
+			if err := api("GET", "/notes"+pq, nil, &page); err != nil {
+				die(err)
+			}
+			metas = append(metas, page.Notes...)
+			if !page.Truncated || len(page.Notes) == 0 {
+				break
+			}
+			offset += 1000 // 按请求页长推进（目录权限过滤会让返回条数变少）
 		}
 		var sb strings.Builder
-		for _, m := range r.Notes {
+		for _, m := range metas {
 			var n noteFull
 			if err := api("GET", "/notes/"+escPath(m.Path)+q, nil, &n); err != nil {
 				continue
@@ -666,7 +684,7 @@ func noteCmd(args []string) {
 		if err := os.WriteFile("extbrain-pull.md", []byte(sb.String()), 0o644); err != nil {
 			die(err)
 		}
-		fmt.Printf("✓ %d 篇 → extbrain-pull.md\n", len(r.Notes))
+		fmt.Printf("✓ %d 篇 → extbrain-pull.md\n", len(metas))
 	case "rm":
 		var repo string
 		f.StringVar(&repo, "repo", "", "仓库名（缺省=默认仓库）")
@@ -689,6 +707,14 @@ func repoQ(repo string) string {
 		return ""
 	}
 	return "?repo=" + url.QueryEscape(repo)
+}
+
+// addQ 追加一个已编码的 query 片段（空串自动补 ?）。
+func addQ(q, kv string) string {
+	if q == "" {
+		return "?" + kv
+	}
+	return q + "&" + kv
 }
 
 func escPath(p string) string {
@@ -724,6 +750,13 @@ func searchCmd(args []string) {
 			Title    string `json:"title"`
 			Snippet  string `json:"snippet"`
 		} `json:"notes"`
+		// notes 专属 Key 返回 {hits}（无跨域权限）；all/Web 返回三域
+		Hits []struct {
+			RepoName string `json:"repo_name"`
+			Path     string `json:"path"`
+			Title    string `json:"title"`
+			Snippet  string `json:"snippet"`
+		} `json:"hits"`
 	}
 	if err := api("GET", "/search?q="+url.QueryEscape(strings.Join(f.Args(), " ")), nil, &r); err != nil {
 		die(err)
@@ -745,14 +778,20 @@ func searchCmd(args []string) {
 		}
 		fmt.Printf("● %s\n  %s\n", loc, h.Snippet)
 	}
-	fmt.Printf("(%d 条)\n", len(r.Todos)+len(r.Memos)+len(r.Notes))
+	for _, h := range r.Hits {
+		loc := h.Path
+		if h.RepoName != "" {
+			loc = "[" + h.RepoName + "] " + h.Path
+		}
+		fmt.Printf("● %s\n  %s\n", loc, h.Snippet)
+	}
+	fmt.Printf("(%d 条)\n", len(r.Todos)+len(r.Memos)+len(r.Notes)+len(r.Hits))
 }
 
 func meCmd(args []string) {
 	f := newFlags("me")
 	f.Parse(reorderFlags(args))
-	var probe struct{}
-	if err := api("GET", "/todos?limit=1", nil, &probe); err != nil {
+	if err := probe(); err != nil {
 		die(err)
 	}
 	c, _ := loadConfig()

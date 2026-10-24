@@ -14,8 +14,8 @@ export const steps = [
   { t: 'http', name: 'scopeAll', path: '/api/v1/search?q=docker&scope=all&limit=5', auth: 'A',
     assert: (d) => S.assert('todos' in d && 'memos' in d && 'notes' in d, 'scope=all 应返回三域结构') },
   // 负向：notes scope 的 Key 借道 scope=all → 不得带出待办/便签
-  { t: 'http', name: 'k2ScopeAllNoTodo', auth: 'K2', path: '/api/v1/search?q=&scope=all', assert: (d) => {
-      S.assert((d.todos || []).length === 0 && (d.memos || []).length === 0, 'notes Key 不得经 scope=all 带出待办/便签') } },
+  { t: 'http', name: 'k2ScopeAllNoTodo', auth: 'K2', path: '/api/v1/search?q=docker&scope=all', expect: 403, assert: (d) => {
+      S.assert(d.error?.code === 'forbidden', 'notes Key 显式请求跨域搜索应 403') } },
   // 管理端配 mock embedding（旅程 mock 服务已由 runner 起 在 127.0.0.1:8199）
   { t: 'http', name: 'cfgEmbed', method: 'PUT', path: '/api/v1/admin/embedding', auth: 'A',
     body: { enabled: true, base_url: 'http://127.0.0.1:8199/v1', model: 'mock-embed', dim: 1024, api_key: 'sk-e2e-mock' }, expect: 200 },
@@ -48,5 +48,5 @@ export const steps = [
   // 负向：无命中词（空簇 quantumflux 语义路为空 + 关键词不中）
   { t: 'http', name: 'noHit', path: '/api/v1/search?q=quantumfluxxyz', auth: 'A', assert: (d) => S.assert((d.notes || []).length === 0, '无词应零命中') },
   // 权限后过滤：P2 搜根级关键词 → 0（根级对 P2 不可见）
-  { t: 'http', name: 'permFilteredSearch', auth: 'P2', path: '/api/v1/search?q=keywordRoot', assert: (d) => S.assert(!(d.notes || []).some((h) => (h.path || '').includes('根级公开')), '根级命中应被权限过滤（其余合法命中允许）') },
+  { t: 'http', name: 'permFilteredSearch', auth: 'P2', path: '/api/v1/search?q=keywordRoot', assert: (d) => S.assert(!(d.hits || d.notes || []).some((h) => (h.path || '').includes('根级公开')), '根级命中应被权限过滤（其余合法命中允许）') },
 ]

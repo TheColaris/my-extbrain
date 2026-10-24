@@ -49,7 +49,8 @@ const (
 	indexQueueSize  = 512
 	indexScanBatch  = 200 // 单次懒补偿最多补算笔记数
 	indexScanEvery  = 15 * time.Minute
-	indexFailedKeep = 5 // 状态里回显的失败明细条数
+	indexFailedKeep = 5   // 状态里回显的失败明细条数
+	indexFailedMax  = 500 // 失败表硬上限（超限整体重置，防内存无界）
 )
 
 // ReindexProgress 全量重建进度
@@ -163,6 +164,9 @@ func (s *IndexService) Enqueue(noteID int64) {
 func (s *IndexService) process(ctx context.Context, noteID int64, force bool) {
 	if err := s.indexNote(ctx, noteID, force); err != nil {
 		s.mu.Lock()
+		if len(s.failed) >= indexFailedMax {
+			s.failed = map[int64]string{} // 有界：长期失败/已删除笔记不无限占内存
+		}
 		s.failed[noteID] = err.Error()
 		s.mu.Unlock()
 		gin.DefaultErrorWriter.Write([]byte("[index] 笔记 " + itoa(noteID) + " 索引失败: " + err.Error() + "\n"))
@@ -245,11 +249,12 @@ func (s *IndexService) dropChunks(ctx context.Context, noteID int64) error {
 }
 
 // Kick 立即跑一次懒补偿（平台配置保存后调用；异步，不阻塞请求）。
+// 用 WithoutCancel：请求返回后 Gin 会取消 ctx，不能让后台补算被连带取消。
 func (s *IndexService) Kick(ctx context.Context) {
 	if !s.Enabled() {
 		return
 	}
-	go s.lazyScan(ctx)
+	go s.lazyScan(context.WithoutCancel(ctx))
 }
 
 // lazyScan 懒补偿：把「hash 不一致 / 无切片」的笔记投递重建（有界批次）。
@@ -392,12 +397,18 @@ func (s *IndexService) Status(ctx context.Context) (*IndexStatus, error) {
 	if err := s.DB.WithContext(ctx).Model(&model.NoteChunk{}).Select("max(update_time)").Scan(&last).Error; err == nil && len(last) > 0 && !last[0].IsZero() {
 		st.LastIndexAt = &last[0]
 	}
+	// 快照内存状态后立刻放锁：后续补路径要查库，持锁会阻塞写请求的 Enqueue
 	s.mu.Lock()
 	st.Progress = s.prog
-	st.Failed = int64(len(s.failed))
-	if len(s.failed) > 0 {
+	failedCopy := make(map[int64]string, len(s.failed))
+	for id, msg := range s.failed {
+		failedCopy[id] = msg
+	}
+	s.mu.Unlock()
+	st.Failed = int64(len(failedCopy))
+	if len(failedCopy) > 0 {
 		items := make([]FailedNote, 0, indexFailedKeep)
-		for id, msg := range s.failed {
+		for id, msg := range failedCopy {
 			if len(items) >= indexFailedKeep {
 				break
 			}
@@ -412,7 +423,6 @@ func (s *IndexService) Status(ctx context.Context) (*IndexStatus, error) {
 		}
 		st.FailedItems = items
 	}
-	s.mu.Unlock()
 	return st, nil
 }
 

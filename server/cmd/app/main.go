@@ -9,6 +9,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"extbrain-server/internal/api"
@@ -92,12 +93,15 @@ func main() {
 	indexSvc := service.NewIndexService(db, sysCfg)
 	indexSvc.Start(context.Background())
 	emailSvc := service.NewEmailService(db, sysCfg)
+	cacheSvc := &service.CacheService{DB: db}
+	keysSvc := &service.APIKeyService{DB: db}
+	authSvc := &service.AuthService{DB: db, Cache: cacheSvc, JWT: jwt, Email: emailSvc}
 	svcs := &api.Deps{
 		DB:      db,
 		Cfg:     cfg,
 		JWT:     jwt,
-		Auth:    &service.AuthService{DB: db, Cache: &service.CacheService{DB: db}, JWT: jwt, Email: emailSvc},
-		Keys:    &service.APIKeyService{DB: db},
+		Auth:    authSvc,
+		Keys:    keysSvc,
 		Logs:    &service.LogQueryService{DB: db},
 		Todos:   &service.TodoService{DB: db},
 		Memos:   &service.MemoService{DB: db},
@@ -108,30 +112,28 @@ func main() {
 		Index:   indexSvc,
 		Ops:     &service.OpsService{DB: db},
 		Notify:  service.NewNotifyService(db, pushLogSvc),
-		CLIAuth: &service.CLIAuthService{Cache: &service.CacheService{DB: db}, Keys: &service.APIKeyService{DB: db}},
+		CLIAuth: &service.CLIAuthService{Cache: cacheSvc, Keys: keysSvc},
 		Push: &service.PushService{
-			DB: db, Cache: &service.CacheService{DB: db},
+			DB: db, Cache: cacheSvc,
 			Notify:      service.NewNotifyService(db, pushLogSvc),
 			PushLog:     pushLogSvc,
 			VapidPublic: cfg.VapidPublicKey, VapidPriv: cfg.VapidPrivateKey,
+			Client: service.NewSafeHTTPClient(10 * time.Second),
 		},
-		Account: &service.AccountService{DB: db},
-		Audit:   service.NewAudit(db),
-		Limiter: service.NewMemRateLimiter(60, time.Minute),
-		// 公开端点 per-IP 限流（防无认证写放大灌库）：发码/注册/登录从严，poll 容纳 CLI 2s 轮询
-		// 洁净室放宽：旅程多轮快跑会打满 10/min——限流逻辑自身由单测保证，洁净模式只放宽配额
+		Account:       &service.AccountService{DB: db, Auth: authSvc},
+		Audit:         service.NewAudit(db),
+		Limiter:       service.NewMemRateLimiter(60, time.Minute),
 		PublicLimiter: service.NewMemRateLimiter(e2ePubLimit(), time.Minute),
 		PollLimiter:   service.NewMemRateLimiter(60, time.Minute),
-		// v1 组级宽松限流：匿名 401 洪泛（伪造 token 打业务端点刷审计行）的最后防线
-		V1Limiter: service.NewMemRateLimiter(e2eV1Limit(), time.Minute),
-		Trash:     &service.TrashService{DB: db},
-		PushLog:   pushLogSvc,
-		Shares:    &service.ShareService{DB: db, Notes: &service.NoteService{DB: db}},
-		Export:    &service.ExportService{DB: db},
-		Perm:      &service.NotePermService{DB: db},
-		Repos:     &service.RepoService{DB: db, Sys: sysCfg},
-
-		Version: version, // MCP /mcp 的 serverInfo
+		V1Limiter:     service.NewMemRateLimiter(e2eV1Limit(), time.Minute),
+		MCPLimiter:    service.NewMemRateLimiter(300, time.Minute),
+		Trash:         &service.TrashService{DB: db, RetentionDays: cfg.TrashRetentionDays},
+		PushLog:       pushLogSvc,
+		Shares:        &service.ShareService{DB: db, Notes: &service.NoteService{DB: db}},
+		Export:        &service.ExportService{DB: db},
+		Perm:          &service.NotePermService{DB: db},
+		Repos:         &service.RepoService{DB: db, Sys: sysCfg},
+		Version:       version, // MCP /mcp 的 serverInfo
 	}
 
 	r := api.Router(*svcs)
@@ -145,6 +147,11 @@ func main() {
 				return
 			}
 			p := c.Request.URL.Path
+			// 未知 API/内部端点回 JSON 404（否则会被 SPA 回退成 index.html 200，客户端误判成功）
+			if p == "/mcp" || strings.HasPrefix(p, "/api/") || strings.HasPrefix(p, "/internal/") {
+				c.JSON(http.StatusNotFound, gin.H{"error": gin.H{"code": "not_found", "message": "路由不存在"}})
+				return
+			}
 			if p != "/" {
 				if _, err := fs.Stat(dist, p[1:]); err == nil {
 					c.FileFromFS(p, http.FS(dist))

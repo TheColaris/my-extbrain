@@ -41,6 +41,7 @@ type Deps struct {
 	PublicLimiter *service.MemRateLimiter // 10 次/分：register / login / cli-auth start
 	PollLimiter   *service.MemRateLimiter // 60 次/分：cli-auth poll
 	V1Limiter     *service.MemRateLimiter // 240 次/分：v1 组级兜底（401 洪泛刷审计的最后防线）
+	MCPLimiter    *service.MemRateLimiter // 300 次/分：/mcp per-IP 兜底（防伪造 Key 打库）
 	Trash         *service.TrashService
 	PushLog       *service.PushLogService
 	Shares        *service.ShareService
@@ -72,6 +73,13 @@ func Router(d Deps) *gin.Engine {
 				p.TimeStamp.Format("2006-01-02 15:04:05"), p.StatusCode, p.Latency, p.Method, redactSensitiveQuery(p.Path))
 		}),
 		BodyLimit(2<<20)) // 2MB 全局请求体上限
+	// 写超时兜底：/mcp 的 GET 是长连接流不能设；其余请求给 120s（全局 WriteTimeout=0 防慢读拖死连接）
+	r.Use(func(c *gin.Context) {
+		if c.Request.URL.Path != "/mcp" {
+			_ = http.NewResponseController(c.Writer).SetWriteDeadline(time.Now().Add(120 * time.Second))
+		}
+		c.Next()
+	})
 	// HEAD 按 GET 语义执行（net/http 自动省略响应体）——此前 HEAD 一律 404（NoRoute 显式拦非 GET），
 	// curl -I / 健康探测全挂；/mcp 例外（其 GET 是长连接流，不可重写）
 	r.Use(func(c *gin.Context) {
@@ -104,7 +112,7 @@ func Router(d Deps) *gin.Engine {
 			Todos: d.Todos, Memos: d.Memos, Notes: d.Notes, Repos: d.Repos, Perm: d.Perm, Account: d.Account,
 			Audit: d.Audit, Version: d.Version,
 		})
-		r.Any("/mcp", MCPRoute(d, mcpH))
+		r.Any("/mcp", IPRateLimit(d.MCPLimiter, "300 次/分钟"), MCPRoute(d, mcpH))
 	}
 
 	// E2E 洁净室信箱（仅三重门全开时注册；门不开=404）。无鉴权：洁净环境与外网隔离。
@@ -187,12 +195,12 @@ func Router(d Deps) *gin.Engine {
 	web.PATCH("/repos/:id", repoH.Update)
 	web.DELETE("/repos/:id", repoH.Delete)
 
-	// 笔记分享管理（notes 域双通道；一篇笔记一个活跃分享）
+	// 笔记分享管理（Web JWT 专属：发布公开链接=owner 行为，AI Key 不得创建/查询/撤销）
 	shareH.Repos = d.Repos
-	notesBiz.POST("/shares", shareH.Create)
-	notesBiz.GET("/shares", shareH.Get)
-	notesBiz.DELETE("/shares/:token", shareH.Revoke)
-	notesBiz.POST("/shares/:token/copy", shareH.Copy)
+	web.POST("/shares", shareH.Create)
+	web.GET("/shares", shareH.Get)
+	web.DELETE("/shares/:token", shareH.Revoke)
+	web.POST("/shares/:token/copy", shareH.Copy)
 
 	// 目录权限（Web JWT 专属；AI 不可自改权限）
 	permH := &NotePermHandler{Perm: d.Perm}

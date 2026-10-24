@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"net/http"
 	"time"
 
 	"extbrain-server/internal/e2e"
@@ -18,12 +19,14 @@ import (
 
 // PushService —— Web Push（VAPID）订阅管理与到期扫描推送。
 type PushService struct {
-	DB          *gorm.DB
-	Cache       *CacheService
-	Notify      *NotifyService
-	PushLog     *PushLogService
-	VapidPublic string
-	VapidPriv   string
+	DB           *gorm.DB
+	Cache        *CacheService
+	Notify       *NotifyService
+	PushLog      *PushLogService
+	VapidPublic  string
+	VapidPriv    string
+	Client       *http.Client // 出站客户端（带超时 + 内网地址防护）
+	AllowPrivate bool         // 测试用：允许 http/内网地址（生产恒 false）
 }
 
 type SubInput struct {
@@ -37,6 +40,9 @@ type SubInput struct {
 func (s *PushService) Enabled() bool { return s.VapidPublic != "" && s.VapidPriv != "" }
 
 func (s *PushService) Subscribe(ctx context.Context, userID int64, in SubInput) error {
+	if !s.AllowPrivate && !IsPublicHTTPS(in.Endpoint) {
+		return &UserError{"push endpoint 必须是公网 https 地址"}
+	}
 	// endpoint 全局唯一：已被其他账号绑定的订阅拒绝接管（冲突分支不再改绑 user_id，
 	// 防知晓他人 endpoint URL 者把推送通道改绑到自己名下）
 	var exist model.PushSubscription
@@ -62,18 +68,28 @@ func (s *PushService) Unsubscribe(ctx context.Context, userID int64, endpoint st
 		Update("is_deleted", 1).Error
 }
 
-// webPush 向单个订阅发通知
-func (s *PushService) webPush(sub *model.PushSubscription, title, body string) error {
+// webPush 向单个订阅发通知（带超时的出站客户端；endpoint 为用户可控地址，禁止无限等待）
+func (s *PushService) webPush(ctx context.Context, sub *model.PushSubscription, title, body string) error {
 	payload, _ := json.Marshal(map[string]string{"title": title, "body": body})
 	// E2E 洁净室：不真发，截获落信箱后按成功返回（绝不回落真实外发）
 	if e2e.Enabled() {
 		e2e.Capture(s.DB, e2e.ChannelWebPush, sub.Endpoint, title, body, string(payload))
 		return nil
 	}
-	rsp, err := webpush.SendNotification(payload, &webpush.Subscription{
+	if !s.AllowPrivate && !IsPublicHTTPS(sub.Endpoint) {
+		return errors.New("push endpoint 不允许（须为公网 https）")
+	}
+	client := s.Client
+	if client == nil {
+		client = NewSafeHTTPClient(10 * time.Second)
+	}
+	rsp, err := webpush.SendNotificationWithContext(ctx, payload, &webpush.Subscription{
 		Endpoint: sub.Endpoint,
 		Keys:     webpush.Keys{Auth: sub.Auth, P256dh: sub.P256DH},
-	}, &webpush.Options{VAPIDPublicKey: s.VapidPublic, VAPIDPrivateKey: s.VapidPriv, TTL: 24 * 3600})
+	}, &webpush.Options{
+		VAPIDPublicKey: s.VapidPublic, VAPIDPrivateKey: s.VapidPriv,
+		TTL: 24 * 3600, HTTPClient: client,
+	})
 	if rsp != nil {
 		rsp.Body.Close()
 		if rsp.StatusCode == 404 || rsp.StatusCode == 410 { // 订阅失效：清理
@@ -172,7 +188,7 @@ func (s *PushService) pushToUser(ctx context.Context, userID int64, eventType mo
 		s.DB.WithContext(ctx).Where("user_id = ? AND is_deleted = 0", userID).Find(&subs)
 		for i := range subs {
 			start := time.Now()
-			err := s.webPush(&subs[i], title, body)
+			err := s.webPush(ctx, &subs[i], title, body)
 			if s.PushLog != nil {
 				s.PushLog.Record(userID, eventType, eventKey, model.PushChannelWeb, subs[i].ID, title, body, err, time.Since(start).Milliseconds())
 			}
@@ -220,7 +236,7 @@ func (s *PushService) RetryChannel(ctx context.Context, userID, logID int64) err
 		if err := q.Order("id DESC").First(&sub).Error; err != nil {
 			pushErr = fmt.Errorf("浏览器订阅不存在或已失效，请到设置页重新订阅")
 		} else {
-			pushErr = s.webPush(&sub, row.Title, row.Body)
+			pushErr = s.webPush(ctx, &sub, row.Title, row.Body)
 			row.ChannelID = sub.ID
 		}
 	case model.PushChannelDingTalk, model.PushChannelFeishu:

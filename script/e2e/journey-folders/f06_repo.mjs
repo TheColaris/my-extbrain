@@ -37,6 +37,14 @@ export const steps = [
   { t: 'http', name: 'repoDelNonEmpty', method: 'DELETE', auth: 'A', path: () => '/api/v1/repos/' + S.repo2.id, expect: [400, 403] },
   { t: 'http', name: 'emptyRepo2Note', method: 'DELETE', auth: 'A',
     path: () => '/api/v1/notes/' + enc('需求/挪入仓二.md') + '?repo=' + enc('旅程仓二'), expect: 200 },
+  // 回收站笔记也算占用：仅软删的仓库仍禁删
+  { t: 'http', name: 'repo2Trash', path: '/api/v1/trash', auth: 'A', assert: (d, S) => {
+      const it = (d.items || []).find((x) => x.type === 'note' && (x.title || '').includes('挪入仓二'))
+      S.assert(it, '回收站应有刚删除的笔记')
+      S.trashNote = it } },
+  { t: 'http', name: 'repoDelWithTrash', method: 'DELETE', auth: 'A', path: () => '/api/v1/repos/' + S.repo2.id, expect: [400, 403] },
+  { t: 'http', name: 'purgeTrashNote', method: 'DELETE', auth: 'A',
+    path: () => '/api/v1/trash/note/' + S.trashNote.id, expect: 200 },
   { t: 'http', name: 'repoDelEmpty', method: 'DELETE', auth: 'A', path: () => '/api/v1/repos/' + S.repo2.id, expect: 200 },
   // 负向：非法仓库名（路径分隔符）
   { t: 'http', name: 'repoBadName', method: 'POST', path: '/api/v1/repos', auth: 'A', body: { name: 'a/b' }, expect: 400 },

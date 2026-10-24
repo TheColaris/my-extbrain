@@ -72,7 +72,7 @@ func TestTrashSearchPushLog(t *testing.T) {
 	byType := map[string]TrashItem{}
 	for _, it := range items {
 		byType[it.Type] = it
-		if it.LeftDays < 0 || it.LeftDays > trashRetentionDays {
+		if it.LeftDays < 0 || it.LeftDays > trashRetentionDefault {
 			t.Fatalf("left_days 越界: %d", it.LeftDays)
 		}
 	}

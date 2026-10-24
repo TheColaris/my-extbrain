@@ -66,13 +66,20 @@ func (h *ShareHandler) Get(c *gin.Context) {
 	if !ok {
 		return
 	}
-	share, err := h.Shares.GetByPath(c.Request.Context(), uid(c), repoID, path)
+	view, ok := permView(c, h.Perm)
+	if !ok {
+		return
+	}
+	share, err := h.Shares.GetByPath(c.Request.Context(), uid(c), repoID, path, view)
 	if err != nil {
-		if errors.Is(err, service.ErrNoteNotFound) {
+		switch {
+		case errors.Is(err, service.ErrNoteNotFound):
 			fail(c, errNotFound("笔记不存在："+path))
-			return
+		case errors.Is(err, service.ErrNoteDenied):
+			failNoteDenied(c)
+		default:
+			respondServiceErr(c, err)
 		}
-		respondServiceErr(c, err)
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"share": share})
@@ -96,7 +103,7 @@ func (h *ShareHandler) Revoke(c *gin.Context) {
 func (h *ShareHandler) Copy(c *gin.Context) {
 	token := c.Param("token")
 	c.Set(CtxAuditTarget, token)
-	repoID, err := h.Repos.DefaultID(c.Request.Context(), uid(c)) // 复制目标=默认仓库根目录
+	repo, err := h.Repos.Default(c.Request.Context(), uid(c)) // 复制目标=默认仓库根目录
 	if err != nil {
 		respondServiceErr(c, err)
 		return
@@ -105,7 +112,7 @@ func (h *ShareHandler) Copy(c *gin.Context) {
 	if !ok {
 		return
 	}
-	note, err := h.Shares.CopyToLibrary(c.Request.Context(), uid(c), repoID, token, view)
+	note, err := h.Shares.CopyToLibrary(c.Request.Context(), uid(c), repo.ID, token, view)
 	if err != nil {
 		switch {
 		case errors.Is(err, service.ErrShareNotFound):
@@ -121,7 +128,7 @@ func (h *ShareHandler) Copy(c *gin.Context) {
 		}
 		return
 	}
-	note.RepoName = "默认仓库" // 复制目标=默认仓库根目录（返回面注记）
+	note.RepoName = repo.Name // 复制目标=默认仓库根目录（返回面注记用真实仓库名）
 	c.JSON(http.StatusOK, gin.H{"note": note})
 }
 

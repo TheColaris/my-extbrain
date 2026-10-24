@@ -197,18 +197,19 @@ func accountOut(u *model.User) gin.H {
 	}
 }
 
-// POST /api/v1/auth/bind（JWT，{type, value, password}）
+// POST /api/v1/auth/bind（JWT，{type, value, password, email_code}；邮箱换绑必须带验证码）
 func (h *AccountHandler) Bind(c *gin.Context) {
 	var in struct {
-		Type     string `json:"type" binding:"required"`
-		Value    string `json:"value" binding:"required"`
-		Password string `json:"password" binding:"required"`
+		Type      string `json:"type" binding:"required"`
+		Value     string `json:"value" binding:"required"`
+		Password  string `json:"password" binding:"required"`
+		EmailCode string `json:"email_code"`
 	}
 	if err := c.ShouldBindJSON(&in); err != nil {
-		fail(c, errBadRequest("invalid_body", "body 是 {type: phone|email, value, password}"))
+		fail(c, errBadRequest("invalid_body", "body 是 {type: email, value, password, email_code}"))
 		return
 	}
-	u, err := h.Account.Bind(c.Request.Context(), uid(c), model.BindChannel(in.Type), in.Value, in.Password)
+	u, err := h.Account.Bind(c.Request.Context(), uid(c), model.BindChannel(in.Type), in.Value, in.Password, in.EmailCode)
 	if err != nil {
 		respondServiceErr(c, err)
 		return

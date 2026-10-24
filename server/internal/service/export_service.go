@@ -18,6 +18,7 @@ type ExportService struct{ DB *gorm.DB }
 
 type exportNote struct {
 	RepoID     int64
+	RepoName   string
 	Path       string
 	Title      string
 	Content    string
@@ -52,37 +53,32 @@ func (s *ExportService) Export(ctx context.Context, userID int64, w io.Writer, r
 	now := time.Now().Format("2006-01-02 15:04:05")
 
 	// 1) 知识库：原始 MD（zip 内 <仓库名>/notes/<仓库内相对路径>，保留目录结构）
-	type exportRepo struct {
-		ID   int64
-		Name string
-	}
-	var repos []exportRepo
-	if err := s.DB.WithContext(ctx).Table("tf_repo").
-		Select("id, name").
-		Where("user_id = ? AND is_deleted = 0", userID).
-		Order("is_default DESC, sort ASC, id ASC").Scan(&repos).Error; err != nil {
-		return err
-	}
-	repoNames := map[int64]string{}
-	for _, r := range repos {
-		repoNames[r.ID] = r.Name
-	}
-	notes := make([]exportNote, 0)
-	if err := s.DB.WithContext(ctx).Table("tf_note n").
-		Select("n.repo_id, n.path, n.title, c.content, n.tags, n.update_time").
+	// 笔记逐行流式写入：不把全库正文一次性读进内存（大库导出曾可达数百 MB）
+	rows, err := s.DB.WithContext(ctx).Table("tf_note n").
+		Select("n.path, c.content, r.name AS repo_name").
 		Joins("JOIN tf_note_content c ON c.note_id = n.id").
+		Joins("JOIN tf_repo r ON r.id = n.repo_id").
 		Where("n.user_id = ? AND n.is_deleted = 0", userID).
-		Order("n.repo_id ASC, n.path ASC").Scan(&notes).Error; err != nil {
+		Order("n.repo_id ASC, n.path ASC").Rows()
+	if err != nil {
 		return err
 	}
-	for _, n := range notes {
-		f, err := zw.Create(root + "/" + repoNames[n.RepoID] + "/notes/" + n.Path)
+	defer rows.Close()
+	for rows.Next() {
+		var n exportNote
+		if err := rows.Scan(&n.Path, &n.Content, &n.RepoName); err != nil {
+			return err
+		}
+		f, err := zw.Create(root + "/" + n.RepoName + "/notes/" + n.Path)
 		if err != nil {
 			return err
 		}
 		if _, err := f.Write([]byte(n.Content)); err != nil {
 			return err
 		}
+	}
+	if err := rows.Err(); err != nil {
+		return err
 	}
 
 	// 2) 待办 / 便签：JSON（全字段，可再导入）

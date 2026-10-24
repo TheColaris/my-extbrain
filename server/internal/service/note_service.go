@@ -34,9 +34,17 @@ var (
 	// 界面上看不见，需要更明确的提示（撤销删除或换个名字）
 	ErrPathConflictDeleted = errors.New("path conflict with deleted note")
 	// ErrNoteDenied：目录权限拦截（AI Key 对该目录不可见；读写同权）——403
-	ErrNoteDenied  = errors.New("note denied by folder permission")
+	ErrNoteDenied = errors.New("note denied by folder permission")
+	// errUpsertRace 内部哨兵：并发新建同路径撞唯一索引，调用方重试走覆盖分支
+	errUpsertRace  = errors.New("note upsert race")
 	pathMax        = 500
+	noteTitleMax   = 255
 	noteContentMax = 1536 * 1024 // 单篇正文上限（请求体全局限 2MB 之内）
+)
+
+const (
+	noteListDefault = 500  // 单页默认条数（前端/MCP 循环翻页）
+	noteListMax     = 1000 // 单页硬上限
 )
 
 type NoteUpsert struct {
@@ -46,7 +54,8 @@ type NoteUpsert struct {
 	ExpectedHash string   `json:"expected_hash"` // 乐观锁：非空且不匹配当前 → 409；空 = 强制覆盖
 }
 
-// CleanPath 规范化路径：去首尾 /、禁 ..、小写扩展名；空标题自动取文件名。
+// CleanPath 规范化路径：去首尾 /、禁非法段；空路径报错。
+// 注意：目录前缀（List/权限规则）也走本函数，因此这里不做任何扩展名补全。
 func CleanPath(p string) (string, error) {
 	p = strings.Trim(p, "/")
 	p = strings.TrimPrefix(p, "./")
@@ -65,10 +74,30 @@ func CleanPath(p string) (string, error) {
 	return p, nil
 }
 
+// CleanNotePath 笔记路径归一：在 CleanPath 基础上给末段无扩展名的路径补 .md
+// （与前端新建弹窗、MCP note_write 的文档口径一致；目录前缀仍用 CleanPath）。
+func CleanNotePath(p string) (string, error) {
+	p, err := CleanPath(p)
+	if err != nil {
+		return "", err
+	}
+	segs := strings.Split(p, "/")
+	last := segs[len(segs)-1]
+	if !strings.Contains(last, ".") {
+		segs[len(segs)-1] = last + ".md"
+		p = strings.Join(segs, "/")
+		if len(p) > pathMax {
+			return "", &UserError{"path 过长（≤500）"}
+		}
+	}
+	return p, nil
+}
+
 // Upsert 按 (user, repo, path) 创建或覆盖；事务写 note + note_content。path 为仓库内相对路径。
 // view=目录权限视图（nil=不受限，Web 面板；下同）——读写同权，不可见即拒绝。
+// 并发新建同路径：唯一索引冲突后重试一次，第二次会走到覆盖分支（不再 500）。
 func (s *NoteService) Upsert(ctx context.Context, userID, repoID int64, rawPath string, in NoteUpsert, view *PermView) (*model.Note, string, error) {
-	p, err := CleanPath(rawPath)
+	p, err := CleanNotePath(rawPath)
 	if err != nil {
 		return nil, "", err
 	}
@@ -79,26 +108,50 @@ func (s *NoteService) Upsert(ctx context.Context, userID, repoID int64, rawPath 
 	if title == "" {
 		title = path.Base(p)
 	}
+	if len([]rune(title)) > noteTitleMax {
+		return nil, "", &UserError{"标题过长（≤255 字）"}
+	}
 	content := strings.ReplaceAll(in.Content, "\r\n", "\n")
 	hash := hashHex(content)
 
 	var note model.Note
-	err = s.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		// 不带 is_deleted 过滤：唯一索引 uk_note_repo_path 含软删行，同路径直接 Create 会撞键
-		if err := tx.Where("user_id = ? AND repo_id = ? AND path = ?", userID, repoID, p).First(&note).Error; err != nil {
-			if err != gorm.ErrRecordNotFound {
-				return err
+	for attempt := 0; attempt < 3; attempt++ {
+		note = model.Note{}
+		err = s.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+			// 不带 is_deleted 过滤：唯一索引 uk_note_repo_path 含软删行，同路径直接 Create 会撞键
+			if err := tx.Where("user_id = ? AND repo_id = ? AND path = ?", userID, repoID, p).First(&note).Error; err != nil {
+				if err != gorm.ErrRecordNotFound {
+					return err
+				}
+				// 新建
+				note = model.Note{UserID: userID, RepoID: repoID, Path: p, Title: title, Tags: normalizeTags(in.Tags)}
+				if err := tx.Create(&note).Error; err != nil {
+					if isUniquePathViolation(err) {
+						return errUpsertRace
+					}
+					return err
+				}
+				return tx.Create(&model.NoteContent{NoteID: note.ID, Content: content, ContentHash: hash}).Error
 			}
-			// 新建
-			note = model.Note{UserID: userID, RepoID: repoID, Path: p, Title: title, Tags: normalizeTags(in.Tags)}
-			if err := tx.Create(&note).Error; err != nil {
-				return err
+			if note.IsDeleted == 1 {
+				// 复活软删笔记（语义=新建覆盖；expected_hash 对已删笔记无意义，不校验）
+				note.IsDeleted = 0
+				note.Title = title
+				note.Tags = normalizeTags(in.Tags)
+				note.UpdateTime = time.Now()
+				if err := tx.Save(&note).Error; err != nil {
+					return err
+				}
+				return tx.Model(&model.NoteContent{}).Where("note_id = ?", note.ID).
+					Updates(map[string]any{"content": content, "content_hash": hash, "update_time": time.Now()}).Error
 			}
-			return tx.Create(&model.NoteContent{NoteID: note.ID, Content: content, ContentHash: hash}).Error
-		}
-		if note.IsDeleted == 1 {
-			// 复活软删笔记（语义=新建覆盖；expected_hash 对已删笔记无意义，不校验）
-			note.IsDeleted = 0
+			// 覆盖：乐观锁
+			if in.ExpectedHash != "" {
+				var cur model.NoteContent
+				if err := tx.First(&cur, "note_id = ?", note.ID).Error; err == nil && cur.ContentHash != in.ExpectedHash {
+					return ErrHashConflict
+				}
+			}
 			note.Title = title
 			note.Tags = normalizeTags(in.Tags)
 			note.UpdateTime = time.Now()
@@ -107,26 +160,14 @@ func (s *NoteService) Upsert(ctx context.Context, userID, repoID int64, rawPath 
 			}
 			return tx.Model(&model.NoteContent{}).Where("note_id = ?", note.ID).
 				Updates(map[string]any{"content": content, "content_hash": hash, "update_time": time.Now()}).Error
+		})
+		if !errors.Is(err, errUpsertRace) {
+			break
 		}
-		// 覆盖：乐观锁
-		if in.ExpectedHash != "" {
-			var cur model.NoteContent
-			if err := tx.First(&cur, "note_id = ?", note.ID).Error; err == nil && cur.ContentHash != in.ExpectedHash {
-				return ErrHashConflict
-			}
-		}
-		note.Title = title
-		note.Tags = normalizeTags(in.Tags)
-		note.UpdateTime = time.Now()
-		if err := tx.Save(&note).Error; err != nil {
-			return err
-		}
-		return tx.Model(&model.NoteContent{}).Where("note_id = ?", note.ID).
-			Updates(map[string]any{"content": content, "content_hash": hash, "update_time": time.Now()}).Error
-	})
+	}
 	if err != nil {
-		if errors.Is(err, ErrHashConflict) {
-			return nil, "", err
+		if errors.Is(err, errUpsertRace) {
+			return nil, "", &UserError{"并发写入冲突，请重试"}
 		}
 		return nil, "", err
 	}
@@ -143,7 +184,7 @@ type NoteFull struct {
 }
 
 func (s *NoteService) Get(ctx context.Context, userID, repoID int64, rawPath string, view *PermView) (*NoteFull, error) {
-	p, err := CleanPath(rawPath)
+	p, err := CleanNotePath(rawPath)
 	if err != nil {
 		return nil, err
 	}
@@ -165,11 +206,24 @@ func (s *NoteService) Get(ctx context.Context, userID, repoID int64, rawPath str
 
 // List 前缀列表（元信息，不含正文）+ 目录聚合（一级目录/文件）。
 // 受限目录的笔记行与目录名一并过滤（目录名本身不可泄露）。
+// 兼容包装：默认第一页（500 条）；需要完整结果时用 ListPage 翻页。
 func (s *NoteService) List(ctx context.Context, userID, repoID int64, prefix string, view *PermView) ([]model.Note, []string, error) {
+	notes, dirs, _, err := s.ListPage(ctx, userID, repoID, prefix, view, noteListDefault, 0)
+	return notes, dirs, err
+}
+
+// ListPage 分页版前缀列表：limit/offset + truncated 标记（调用方按需继续翻页）。
+func (s *NoteService) ListPage(ctx context.Context, userID, repoID int64, prefix string, view *PermView, limit, offset int) ([]model.Note, []string, bool, error) {
+	if limit <= 0 || limit > noteListMax {
+		limit = noteListDefault
+	}
+	if offset < 0 {
+		offset = 0
+	}
 	if prefix != "" {
 		var err error
 		if prefix, err = CleanPath(prefix); err != nil {
-			return nil, nil, err
+			return nil, nil, false, err
 		}
 		prefix += "/"
 	}
@@ -178,8 +232,12 @@ func (s *NoteService) List(ctx context.Context, userID, repoID int64, prefix str
 	if prefix != "" {
 		q = q.Where("path LIKE ?", prefix+"%")
 	}
-	if err := q.Order("path ASC").Limit(500).Find(&notes).Error; err != nil {
-		return nil, nil, err
+	if err := q.Order("path ASC").Limit(limit + 1).Offset(offset).Find(&notes).Error; err != nil {
+		return nil, nil, false, err
+	}
+	truncated := len(notes) > limit
+	if truncated {
+		notes = notes[:limit]
 	}
 	if view != nil {
 		kept := make([]model.Note, 0, len(notes))
@@ -205,11 +263,11 @@ func (s *NoteService) List(ctx context.Context, userID, repoID int64, prefix str
 			}
 		}
 	}
-	return notes, dirs, nil
+	return notes, dirs, truncated, nil
 }
 
 func (s *NoteService) Delete(ctx context.Context, userID, repoID int64, rawPath string, view *PermView) error {
-	p, err := CleanPath(rawPath)
+	p, err := CleanNotePath(rawPath)
 	if err != nil {
 		return err
 	}
@@ -222,6 +280,13 @@ func (s *NoteService) Delete(ctx context.Context, userID, repoID int64, rawPath 
 	if res.RowsAffected == 0 {
 		return ErrNoteNotFound
 	}
+	// 软删即清切片：搜索侧本就按 is_deleted 过滤，留着只会让索引状态虚高；
+	// 恢复（Restore/Upsert 复活）会重新投递重建。
+	if res.Error == nil {
+		s.DB.WithContext(ctx).Exec(
+			`DELETE FROM tf_note_chunk WHERE note_id IN
+			 (SELECT id FROM tf_note WHERE user_id = ? AND repo_id = ? AND path = ?)`, userID, repoID, p)
+	}
 	return res.Error
 }
 
@@ -230,11 +295,11 @@ func (s *NoteService) Delete(ctx context.Context, userID, repoID int64, rawPath 
 // 「仓库名:路径」形态的解析在调用方 RepoService.SplitCrossRepo 完成）。
 // 目标被占用（含软删行——唯一索引含软删）→ ErrPathConflict。
 func (s *NoteService) Move(ctx context.Context, userID, fromRepoID int64, rawFrom string, toRepoID int64, rawTo string, view *PermView) (*model.Note, error) {
-	from, err := CleanPath(rawFrom)
+	from, err := CleanNotePath(rawFrom)
 	if err != nil {
 		return nil, err
 	}
-	to, err := CleanPath(rawTo)
+	to, err := CleanNotePath(rawTo)
 	if err != nil {
 		return nil, err
 	}
@@ -265,7 +330,13 @@ func (s *NoteService) Move(ctx context.Context, userID, fromRepoID int64, rawFro
 		note.RepoID = toRepoID
 		note.Path = to
 		note.UpdateTime = time.Now()
-		return tx.Save(&note).Error
+		if err := tx.Save(&note).Error; err != nil {
+			if isUniquePathViolation(err) { // 并发移动撞目标路径：与「目标已存在」同语义
+				return ErrPathConflict
+			}
+			return err
+		}
+		return nil
 	})
 	if err != nil {
 		return nil, err
@@ -276,7 +347,7 @@ func (s *NoteService) Move(ctx context.Context, userID, fromRepoID int64, rawFro
 // Restore 撤销删除（is_deleted 1→0）。唯一索引含软删行，同仓库同路径不可能被活跃笔记占用。
 // 回收站恢复走 TrashService（按 note id）；本方法供 API {path, repo} 语义。
 func (s *NoteService) Restore(ctx context.Context, userID, repoID int64, rawPath string, view *PermView) (*model.Note, error) {
-	p, err := CleanPath(rawPath)
+	p, err := CleanNotePath(rawPath)
 	if err != nil {
 		return nil, err
 	}
@@ -295,6 +366,9 @@ func (s *NoteService) Restore(ctx context.Context, userID, repoID int64, rawPath
 	var note model.Note
 	if err := s.DB.WithContext(ctx).Where("user_id = ? AND repo_id = ? AND path = ?", userID, repoID, p).First(&note).Error; err != nil {
 		return nil, ErrNoteNotFound
+	}
+	if s.Index != nil { // 软删时已清切片，恢复后重建
+		s.Index.Enqueue(note.ID)
 	}
 	return &note, nil
 }
@@ -378,6 +452,7 @@ func filterHits(hits []SearchHit, view *PermView) []SearchHit {
 }
 
 // searchKeyword 关键词路（ILIKE 跨 title/path/content；update_time 倒序=融合排名的稳定依据）
+// 正文只回窗口片段（position 定位命中点前后 240 字符），避免把每篇全文（可达 1.5MB）读进内存。
 func (s *NoteService) searchKeyword(ctx context.Context, userID int64, q string, limit int) ([]SearchHit, []int64, error) {
 	like := "%" + q + "%"
 	var rows []struct {
@@ -386,11 +461,16 @@ func (s *NoteService) searchKeyword(ctx context.Context, userID int64, q string,
 		RepoName   string
 		Path       string
 		Title      string
-		Content    string
+		Snippet    string
+		SizeBytes  int
 		UpdateTime time.Time
 	}
 	err := s.DB.WithContext(ctx).Table("tf_note n").
-		Select("n.id, n.repo_id, n.path, n.title, c.content, n.update_time, r.name AS repo_name").
+		Select(`n.id, n.repo_id, n.path, n.title, n.update_time, r.name AS repo_name,
+			octet_length(c.content) AS size_bytes,
+			CASE WHEN position(lower(?) in lower(c.content)) > 0
+				THEN substring(c.content from greatest(1, position(lower(?) in lower(c.content)) - 96) for 240)
+				ELSE left(c.content, 240) END AS snippet`, q, q).
 		Joins("JOIN tf_note_content c ON c.note_id = n.id").
 		Joins("JOIN tf_repo r ON r.id = n.repo_id").
 		Where("n.user_id = ? AND n.is_deleted = 0 AND (n.title ILIKE ? OR n.path ILIKE ? OR c.content ILIKE ?)", userID, like, like, like).
@@ -404,8 +484,8 @@ func (s *NoteService) searchKeyword(ctx context.Context, userID int64, q string,
 	for _, r := range rows {
 		hits = append(hits, SearchHit{
 			RepoID: r.RepoID, RepoName: r.RepoName,
-			Path: r.Path, Title: r.Title, Snippet: excerpt(r.Content, q, 48),
-			SizeBytes: len(r.Content), UpdatedAt: r.UpdateTime, Source: string(model.SearchSourceKeyword),
+			Path: r.Path, Title: r.Title, Snippet: excerpt(r.Snippet, q, 48),
+			SizeBytes: r.SizeBytes, UpdatedAt: r.UpdateTime, Source: string(model.SearchSourceKeyword),
 		})
 		ids = append(ids, r.ID)
 	}

@@ -22,8 +22,10 @@ var (
 
 const (
 	pwdMinLen       = 8
+	pwdMaxLen       = 72               // bcrypt 只取前 72 字节，超长会被静默截断
 	loginFailLimit  = 5                // 连续失败 5 次
 	loginFailWindow = 15 * time.Minute // 锁 15 分钟（窗口即锁期）
+	emailCodeMaxTry = 5                // 单验证码最多错 5 次（错满即作废）
 )
 
 type AuthService struct {
@@ -70,6 +72,9 @@ func (s *AuthService) Register(ctx context.Context, in RegisterInput) (*model.Us
 	if len(in.Password) < pwdMinLen {
 		return nil, &UserError{"密码至少 8 位"}
 	}
+	if len(in.Password) > pwdMaxLen {
+		return nil, &UserError{"密码过长（≤72 字节）"}
+	}
 	// 通道占用检查（两通道都查，命中即冲突）
 	var cnt int64
 	s.DB.WithContext(ctx).Model(&model.User{}).
@@ -90,16 +95,17 @@ func (s *AuthService) Register(ctx context.Context, in RegisterInput) (*model.Us
 	u := &model.User{PasswordHash: string(hash), NickName: defaultNick(ident), Email: &ident}
 	if err := s.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		// 首个注册用户自动成为平台管理员（自托管开箱即用；存量库由迁移 0009 补齐）。
-		// Count 粗判 + sys_cache 原子计数收口：并发注册只有一个请求拿到 1（根除双 admin TOCTOU，
-		// 无需唯一索引；缓存清空且库无 admin 的双场景才可能重发，正常演化下安全）
+		// 事务级 advisory lock 串行化「首个用户」判定：并发注册只有一个能拿到管理员；
+		// 锁随事务结束释放，注册失败回滚不会消耗名额（此前用 sys_cache 计数器，失败也会占位）。
+		if err := tx.Exec(`SELECT pg_advisory_xact_lock(?)`, adminBootstrapLock).Error; err != nil {
+			return err
+		}
 		var admins int64
 		if err := tx.Model(&model.User{}).Where("is_admin = 1").Count(&admins).Error; err != nil {
 			return err
 		}
 		if admins == 0 {
-			if n, _ := s.Cache.Incr(ctx, "admin_bootstrap", 24*time.Hour); n == 1 {
-				u.IsAdmin = 1
-			}
+			u.IsAdmin = 1
 		}
 		if err := tx.Create(u).Error; err != nil {
 			return err
@@ -111,6 +117,9 @@ func (s *AuthService) Register(ctx context.Context, in RegisterInput) (*model.Us
 	}
 	return u, nil
 }
+
+// adminBootstrapLock pg_advisory_xact_lock 的固定 key（任意常量，仅本应用使用）。
+const adminBootstrapLock int64 = 0x657874627261696e
 
 // 注册验证码参数：10 分钟有效；同邮箱 60 秒重发冷却；全局日上限（Resend 免费层 100 封/天，留余量）。
 const (
@@ -157,6 +166,7 @@ func (s *AuthService) SendEmailCode(ctx context.Context, email string) error {
 }
 
 // consumeEmailCode 校验并消费邮箱验证码（一次性；空/过期/不匹配均报错）。
+// 同一验证码错满 emailCodeMaxTry 次即作废，防 6 位数字被低速爆破。
 func (s *AuthService) consumeEmailCode(ctx context.Context, email, code string) error {
 	code = strings.TrimSpace(code)
 	if code == "" {
@@ -166,10 +176,18 @@ func (s *AuthService) consumeEmailCode(ctx context.Context, email, code string) 
 	if err != nil || saved == "" {
 		return &UserError{"验证码已过期，请重新获取"}
 	}
+	failKey := "email_code_fail:" + email
 	if saved != code {
+		n, _ := s.Cache.Incr(ctx, failKey, emailCodeTTL)
+		if n >= emailCodeMaxTry {
+			s.Cache.Del(ctx, emailCodeKey(email))
+			s.Cache.Del(ctx, failKey)
+			return &UserError{"验证码错误次数过多，已作废，请重新获取"}
+		}
 		return &UserError{"验证码错误"}
 	}
 	s.Cache.Del(ctx, emailCodeKey(email))
+	s.Cache.Del(ctx, failKey)
 	return nil
 }
 

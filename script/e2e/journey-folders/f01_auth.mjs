@@ -71,9 +71,15 @@ export const steps = [
     save: { B2: (d, S, res) => { const t = res.headers.get('authorization') || d.token; return { ...S.B, authHeader: 'Bearer ' + t } } }, expect: 200 },
   { t: 'http', name: 'oldTokenDead', path: '/api/v1/auth/me', auth: 'B', expect: 401, assert: (d, S) => { S.B = S.B2; } },
   { t: 'http', name: 'newTokenLive', path: '/api/v1/auth/me', auth: 'B', expect: 200 },
-  // 换绑邮箱（密码确认）→ 再 +1 token_version（A 换，B 保留做跨用户负向）
-  { t: 'http', name: 'bindEmail', method: 'POST', path: '/api/v1/auth/bind', auth: 'A', body: () => ({ type: 'email', value: 'a' + S.runId8 + '@e2e.test', password: S.A.password }),
-    save: { A2: (d, S, res) => { const t = res.headers.get('authorization') || d.token; return { ...S.A, authHeader: 'Bearer ' + t, email: 'a' + S.runId8 + '@e2e.test' } } }, expect: 200 },
+  // 换绑邮箱（密码 + 邮箱验证码）→ 再 +1 token_version（A 换，B 保留做跨用户负向）
+  { t: 'fn', name: 'bindEmailCode', fn: async (S) => {
+      S.bindEmail = 'a-new-' + S.runId8 + '@e2e.test'
+      S.bindCode = await sendAndFetchCode(S, S.bindEmail) } },
+  { t: 'http', name: 'bindEmailNoCode', method: 'POST', path: '/api/v1/auth/bind', auth: 'A',
+    body: () => ({ type: 'email', value: S.bindEmail, password: S.A.password }), expect: [400, 401] },
+  { t: 'http', name: 'bindEmail', method: 'POST', path: '/api/v1/auth/bind', auth: 'A',
+    body: () => ({ type: 'email', value: S.bindEmail, password: S.A.password, email_code: S.bindCode }),
+    save: { A2: (d, S, res) => { const t = res.headers.get('authorization') || d.token; return { ...S.A, authHeader: 'Bearer ' + t, email: S.bindEmail } } }, expect: 200 },
   { t: 'http', name: 'aOldTokenDead', path: '/api/v1/auth/me', auth: 'A', expect: 401, assert: (d, S) => { S.A = S.A2 } },
   { t: 'http', name: 'aNewTokenLive', path: '/api/v1/auth/me', auth: 'A', expect: 200 },
 ]
